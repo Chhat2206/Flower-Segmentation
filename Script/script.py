@@ -62,9 +62,9 @@ def process_and_compare_image(input_path, ground_truth_path):
     print(f"SSIM between processed image and inverted ground truth: {score}")
 
 # Paths
-input_path = 'input-images/easy/easy_1.jpg'
+input_path = 'input-images/hard/hard_2.jpg'
 base_name = os.path.basename(input_path).replace('.jpg', '_binary.jpg')
-ground_truth_path = 'ground_truths/easy/easy_1.png'
+ground_truth_path = 'ground_truths/hard/hard_2.png'
 
 # Process the image and compare with inverted ground truth
 process_and_compare_image(input_path, ground_truth_path)
