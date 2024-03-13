@@ -20,6 +20,10 @@ def threshold_image(image, method='otsu'):
     else:
         raise ValueError("Unknown thresholding method.")
 
+def invert_colors(image):
+    # Invert the image colors
+    return cv2.bitwise_not(image)
+
 def process_and_compare_image(input_path, ground_truth_path):
     # Read the input and ground truth images
     image = cv2.imread(input_path)
@@ -27,6 +31,10 @@ def process_and_compare_image(input_path, ground_truth_path):
 
     if image is None or ground_truth is None:
         raise ValueError("Image or ground truth not found.")
+
+    # Invert the ground truth colors and ensure it is binary
+    inverted_ground_truth = invert_colors(ground_truth)
+    _, binary_ground_truth = cv2.threshold(inverted_ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     # Processing pipeline
     gray_image = convert_to_grayscale(image)
@@ -42,21 +50,21 @@ def process_and_compare_image(input_path, ground_truth_path):
     plt.axis('off')
 
     plt.subplot(1, 2, 2)
-    plt.imshow(ground_truth, cmap='gray')
-    plt.title("Ground Truth")
+    plt.imshow(binary_ground_truth, cmap='gray')
+    plt.title("Inverted Ground Truth")
     plt.axis('off')
 
     plt.tight_layout()
     plt.show()
 
-    # Compute the Structural Similarity Index (SSIM)
-    score, _ = ssim(binary_image, ground_truth, full=True)
-    print(f"SSIM between processed image and ground truth: {score}")
+    # Compute the Structural Similarity Index (SSIM) between processed image and inverted ground truth
+    score, _ = ssim(binary_image, binary_ground_truth, full=True)
+    print(f"SSIM between processed image and inverted ground truth: {score}")
 
 # Paths
 input_path = 'input-images/easy/easy_1.jpg'
 base_name = os.path.basename(input_path).replace('.jpg', '_binary.jpg')
 ground_truth_path = 'ground_truths/easy/easy_1.png'
 
-# Process the image and compare with ground truth
+# Process the image and compare with inverted ground truth
 process_and_compare_image(input_path, ground_truth_path)
