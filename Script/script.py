@@ -25,6 +25,22 @@ def threshold_image(image, method='otsu'):
 def invert_colors(image):
     return cv2.bitwise_not(image)
 
+# New function to convert to HSV and split
+def convert_to_hsv_and_split(image):
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    h, s, v = cv2.split(hsv_image)
+    return h, s, v
+
+# Placeholder for morphological transformations
+def apply_morphological_transformations(image, operation='open', kernel_size=5):
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    if operation == 'open':
+        return cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)
+    elif operation == 'close':
+        return cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
+    else:
+        raise ValueError("Unknown morphological operation.")
+
 def process_and_compare_image(input_path, ground_truth_path):
     image = cv2.imread(input_path)
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
@@ -40,17 +56,22 @@ def process_and_compare_image(input_path, ground_truth_path):
     additionally_blurred_image = apply_additional_blur(noise_reduced_image)
     binary_image = threshold_image(additionally_blurred_image)
 
-    score, _ = ssim(binary_image, binary_ground_truth, full=True)
-    images = [image, gray_image, noise_reduced_image, additionally_blurred_image, binary_image, binary_ground_truth]
+    # Apply morphological transformation to binary_image or as needed
+    morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 5)
+
+    score, _ = ssim(morphologically_transformed_image, binary_ground_truth, full=True)
+    images = [image, gray_image, noise_reduced_image, additionally_blurred_image, binary_image, binary_ground_truth, morphologically_transformed_image]
     descriptions = [
         "Original Image",
         "Grayscale Conversion",
         "Noise Reduction (Gaussian Blur)",
         "Additional Blur",
         "Binary Threshold (Otsu's Method)",
-        "Inverted Ground Truth"
+        "Inverted Ground Truth",
+        "Morphological Transformation"
     ]
     return score, images, descriptions
+
 def modify_colors(image_path, modified_image_path):
     # Load the image
     image = cv2.imread(image_path)
