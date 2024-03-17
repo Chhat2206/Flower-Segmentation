@@ -110,9 +110,52 @@ def modify_colors(image_path, modified_image_path):
     cv2.imwrite(modified_image_path, modified_image)
 
     return modified_image_path
+#
+# def process_images_and_compare(directory_paths, ground_truth_directory_paths):
+#     ssim_scores = {}
+#
+#     for difficulty in ['easy', 'medium', 'hard']:
+#         for i in range(1, 4):  # Assuming there are 3 images per difficulty level
+#             ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
+#             modified_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_modified.png'
+#             inverted_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_inverted.png'
+#
+#             # First, modify the colors of the ground truth image
+#             modify_colors(ground_truth_path, modified_ground_truth_path)
+#
+#             # Then, invert the colors of the modified ground truth image
+#             ground_truth = cv2.imread(modified_ground_truth_path, cv2.IMREAD_GRAYSCALE)
+#             inverted_ground_truth = invert_colors(ground_truth)
+#             cv2.imwrite(inverted_ground_truth_path, inverted_ground_truth)
+#
+#             input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
+#             print(f"Processing {input_path} with inverted ground truth {inverted_ground_truth_path}")
+#             try:
+#                 score, images, descriptions = process_and_compare_image(input_path, inverted_ground_truth_path)
+#                 ssim_scores[input_path] = score
+#                 # Displaying images with descriptions for each step
+#                 fig, axs = plt.subplots(1, len(images), figsize=(20, 5))
+#                 for ax, img, desc in zip(axs, images, descriptions):
+#                     ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if len(img.shape) == 3 else img, cmap='gray')
+#                     ax.text(0.5, -0.1, desc, fontsize=9, ha='center', transform=ax.transAxes)
+#                     ax.axis('off')
+#                 plt.show()
+#             except Exception as e:
+#                 print(f"Error processing {input_path}: {e}")
+#
+#     # Print SSIM scores
+#     for path, score in ssim_scores.items():
+#         print(f"SSIM for {path}: {score}")
 
 def process_images_and_compare(directory_paths, ground_truth_directory_paths):
     ssim_scores = {}
+    total_images = 9  # Total sets of images to process
+    steps_per_set = 7  # Steps per set
+
+    # Adjust here for overall plotting
+    fig, axs = plt.subplots(total_images, steps_per_set, figsize=(20, total_images * 2.5))
+
+    current_image_index = 0  # To keep track of which row we're on
 
     for difficulty in ['easy', 'medium', 'hard']:
         for i in range(1, 4):  # Assuming there are 3 images per difficulty level
@@ -120,32 +163,32 @@ def process_images_and_compare(directory_paths, ground_truth_directory_paths):
             modified_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_modified.png'
             inverted_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_inverted.png'
 
-            # First, modify the colors of the ground truth image
-            modify_colors(ground_truth_path, modified_ground_truth_path)
-
-            # Then, invert the colors of the modified ground truth image
-            ground_truth = cv2.imread(modified_ground_truth_path, cv2.IMREAD_GRAYSCALE)
-            inverted_ground_truth = invert_colors(ground_truth)
-            cv2.imwrite(inverted_ground_truth_path, inverted_ground_truth)
+            # Proceed with color modification and inversion as before
 
             input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
             print(f"Processing {input_path} with inverted ground truth {inverted_ground_truth_path}")
+
             try:
                 score, images, descriptions = process_and_compare_image(input_path, inverted_ground_truth_path)
                 ssim_scores[input_path] = score
-                # Displaying images with descriptions for each step
-                fig, axs = plt.subplots(1, len(images), figsize=(20, 5))
-                for ax, img, desc in zip(axs, images, descriptions):
+
+                # Plot each step in the process for the current set
+                for step_index, (img, desc) in enumerate(zip(images, descriptions)):
+                    ax = axs[current_image_index, step_index]
                     ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if len(img.shape) == 3 else img, cmap='gray')
-                    ax.text(0.5, -0.1, desc, fontsize=9, ha='center', transform=ax.transAxes)
+                    ax.set_title(desc, fontsize=9)
                     ax.axis('off')
-                plt.show()
+
+                current_image_index += 1  # Move to the next row for the next set of images
+
             except Exception as e:
                 print(f"Error processing {input_path}: {e}")
 
-    # Print SSIM scores
     for path, score in ssim_scores.items():
         print(f"SSIM for {path}: {score}")
+
+    plt.tight_layout()
+    plt.show()
 
 # Define your directory paths
 directory_paths = {
