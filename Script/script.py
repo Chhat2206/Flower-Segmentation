@@ -88,10 +88,22 @@ def refine_contours_and_extract_roi(image, edges):
     else:
         return image
 
+def gamma_correction(image, gamma=0.5, gain=1.2):
+    # Build a lookup table mapping pixel values [0, 255] to their adjusted gamma values
+    invGamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** invGamma) * gain * 255
+                      for i in np.arange(0, 256)]).astype("uint8")
+
+    # Apply gamma correction using the lookup table
+    return cv2.LUT(image, table)
+
 def process_image_and_calculate_iou(input_path, ground_truth_path):
     # Read the images
     image = cv2.imread(input_path)
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
+
+    # Apply gamma correction
+    image = gamma_correction(image)
 
     # Check if images were successfully loaded
     if image is None or ground_truth is None:
