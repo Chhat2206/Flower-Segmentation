@@ -37,11 +37,19 @@ def apply_otsu_threshold(image, method='otsu'):
 def invert_colors(image):
     return cv2.bitwise_not(image)
 
+
 def calculate_miou(prediction, target):
+    # Ensure both images have the same number of dimensions
+    if len(target.shape) == 2:  # Target is grayscale
+        prediction = cv2.cvtColor(prediction, cv2.COLOR_BGR2GRAY)
+    elif len(target.shape) == 3:  # Target is color
+        prediction = cv2.cvtColor(prediction, cv2.COLOR_GRAY2BGR)
+
     intersection = np.logical_and(target, prediction)
     union = np.logical_or(target, prediction)
     iou_score = np.sum(intersection) / np.sum(union)
     return iou_score
+
 
 # New function to convert to HSV and split
 def convert_to_hsv_and_split(image):
@@ -59,40 +67,100 @@ def apply_morphological_transformations(image, operation='open', kernel_size=5):
     else:
         raise ValueError("Unknown morphological operation.")
 
-# Updated part of the process_image_and_calculate_iou function where the adaptive Gaussian blur is applied
+# Function to refine contours and extract the flower with a white background
+def refine_contours_and_extract_roi(image, edges):
+    # Find contours based on edges detected
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Assuming the largest contour is the flower
+    if contours:
+        largest_contour = max(contours, key=cv2.contourArea)
+        # Create a mask for the largest contour
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        cv2.drawContours(mask, [largest_contour], -1, 50, 10)
+        # Create a white background
+        white_background = np.full(image.shape, 255, dtype=np.uint8)
+        # Apply the mask to the flower and the background
+        flower = cv2.bitwise_and(image, image, mask=mask)
+        white_background = cv2.bitwise_and(white_background, white_background, mask=cv2.bitwise_not(mask))
+        # Combine the flower with the white background
+        final_image = cv2.add(flower, white_background)
+        return final_image
+    else:
+        return image
+
 def process_image_and_calculate_iou(input_path, ground_truth_path):
+    # Read the images
     image = cv2.imread(input_path)
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
 
+    # Check if images were successfully loaded
     if image is None or ground_truth is None:
         raise ValueError("Image or ground truth not found.")
 
-    # Convert the ground truth to binary (black and white) directly
-    _, binary_ground_truth = cv2.threshold(ground_truth, 127, 255, cv2.THRESH_BINARY)
-
-    # Invert the colors of the binary ground truth
-    inverted_binary_ground_truth = invert_colors(binary_ground_truth)
-
+    # Convert the image to grayscale
     gray_image = convert_to_grayscale(image)
-    noise_reduced_image = adaptive_gaussian_blur(gray_image)  # Updated to use adaptive Gaussian blur
-    binary_image = apply_otsu_threshold(noise_reduced_image)
+    # Apply adaptive Gaussian blur
+    noise_reduced_image = adaptive_gaussian_blur(gray_image)
+    # Apply edge detection
+    edges = cv2.Canny(noise_reduced_image, 50, 150)
+    # Extract ROI with a white background
+    roi_image = refine_contours_and_extract_roi(image, edges)
+    # Convert the ground truth to binary and invert the colors
+    binary_ground_truth = apply_otsu_threshold(ground_truth)
+    inverted_binary_ground_truth = invert_colors(binary_ground_truth)
+    # Calculate mIoU score
+    miou_score = calculate_miou(roi_image, inverted_binary_ground_truth)
 
-    # Apply morphological transformation to binary_image or as needed
-    morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 5)
-
-    miou_score = calculate_miou(morphologically_transformed_image // 255, inverted_binary_ground_truth // 255)
-
-    images = [image, gray_image, noise_reduced_image, binary_image, inverted_binary_ground_truth, morphologically_transformed_image]
+    # Prepare images and descriptions for plotting
+    images = [
+        image,
+        gray_image,
+        noise_reduced_image,
+        edges,
+        roi_image,
+        binary_ground_truth,
+        inverted_binary_ground_truth
+    ]
     descriptions = [
         "Original Image",
-        "Grayscale Conversion",
-        "Adaptive Noise Reduction (Gaussian Blur)",  # Description updated
-        "Binary Threshold (Otsu's Method)",
-        "Inverted Binary Ground Truth",
-        "Morphological Transformation"
+        "Grayscale Image",
+        "Adaptive Gaussian Blur",
+        "Edge Detection",
+        "Region of Interest (ROI)",
+        "Binary Ground Truth",
+        "Inverted Binary Ground Truth"
     ]
+
+    # Plot the results
+    fig, axs = plt.subplots(1, len(images), figsize=(20, 5))
+    for ax, img, desc in zip(axs, images, descriptions):
+        ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if len(img.shape) == 3 else img, cmap='gray')
+        ax.set_title(desc)
+        ax.axis('off')
+    plt.tight_layout()
+    plt.show()
+
     return miou_score, images, descriptions
 
+# Function to refine contours and extract the ROI with a white background
+def refine_contours_and_extract_roi(image, edges):
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # If no contours are detected
+    if not contours:
+        return image
+    # Assuming the largest contour in the image is the flower
+    largest_contour = max(contours, key=cv2.contourArea)
+    # Create a mask for the largest contour
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.drawContours(mask, [largest_contour], -1, 255, -1)
+    # Create a white background the same size as the image
+    white_background = np.full(image.shape, 255, dtype=np.uint8)
+    # Apply the mask to the image to extract the flower
+    flower = cv2.bitwise_and(image, image, mask=mask)
+    # Combine the extracted flower with the white background
+    roi_image = cv2.bitwise_and(white_background, white_background, mask=cv2.bitwise_not(mask))
+    roi_image += flower
+    return roi_image
 
 def process_multiple_images_and_calculate_iou(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
