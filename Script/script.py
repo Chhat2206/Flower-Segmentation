@@ -6,14 +6,26 @@ from sklearn.metrics import confusion_matrix
 def convert_to_grayscale(image):
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-def apply_gussian_blur(image, method='gaussian', kernel_size=5):
-    if method == 'gaussian':
-        return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
-    else:
-        raise ValueError("Unknown noise reduction method.")
+def adaptive_gaussian_blur(image):
+    # Check if the image is grayscale or color
+    if len(image.shape) == 2 or image.shape[2] == 1:  # Grayscale image
+        gray_image = image
+    else:  # Color image
+        gray_image = convert_to_grayscale(image)
 
-def apply_strong_gaussian_blur(image, kernel_size=9):
-    return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+    # Calculate the Laplacian variance on the grayscale image
+    laplacian_var = cv2.Laplacian(gray_image, cv2.CV_64F).var()
+
+    # Adjust the kernel size based on the variance
+    if laplacian_var < 300:  # Low variance, image is likely smooth
+        kernel_size = (9, 9)
+    elif laplacian_var < 600:  # Moderate variance
+        kernel_size = (7, 7)
+    else:  # High variance, preserve more details
+        kernel_size = (5, 5)
+
+    # Apply Gaussian Blur to the original image, not the grayscale version
+    return cv2.GaussianBlur(image, kernel_size, 0)
 
 def apply_otsu_threshold(image, method='otsu'):
     if method == 'otsu':
@@ -46,6 +58,8 @@ def apply_morphological_transformations(image, operation='open', kernel_size=5):
         return cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
     else:
         raise ValueError("Unknown morphological operation.")
+
+# Updated part of the process_image_and_calculate_iou function where the adaptive Gaussian blur is applied
 def process_image_and_calculate_iou(input_path, ground_truth_path):
     image = cv2.imread(input_path)
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
@@ -60,21 +74,19 @@ def process_image_and_calculate_iou(input_path, ground_truth_path):
     inverted_binary_ground_truth = invert_colors(binary_ground_truth)
 
     gray_image = convert_to_grayscale(image)
-    noise_reduced_image = apply_gussian_blur(gray_image)
-    additionally_blurred_image = apply_strong_gaussian_blur(noise_reduced_image)
-    binary_image = apply_otsu_threshold(additionally_blurred_image)
+    noise_reduced_image = adaptive_gaussian_blur(gray_image)  # Updated to use adaptive Gaussian blur
+    binary_image = apply_otsu_threshold(noise_reduced_image)
 
     # Apply morphological transformation to binary_image or as needed
     morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 5)
 
     miou_score = calculate_miou(morphologically_transformed_image // 255, inverted_binary_ground_truth // 255)
 
-    images = [image, gray_image, noise_reduced_image, additionally_blurred_image, binary_image, inverted_binary_ground_truth, morphologically_transformed_image]
+    images = [image, gray_image, noise_reduced_image, binary_image, inverted_binary_ground_truth, morphologically_transformed_image]
     descriptions = [
         "Original Image",
         "Grayscale Conversion",
-        "Noise Reduction (Gaussian Blur)",
-        "Additional Blur",
+        "Adaptive Noise Reduction (Gaussian Blur)",  # Description updated
         "Binary Threshold (Otsu's Method)",
         "Inverted Binary Ground Truth",
         "Morphological Transformation"
