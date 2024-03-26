@@ -6,9 +6,9 @@ from sklearn.metrics import confusion_matrix
 def convert_to_grayscale(image):
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-def apply_noise_reduction(image, method='gaussian', kernel_size=5):
+def apply_noise_reduction(image, method='gaussian', kernel_size=7):
     if method == 'gaussian':
-        return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+        return cv2.GaussianBlur(image, (kernel_size, kernel_size), 5)
     else:
         raise ValueError("Unknown noise reduction method.")
 
@@ -48,35 +48,51 @@ def apply_morphological_transformations(image, operation='open', kernel_size=5):
         raise ValueError("Unknown morphological operation.")
 
 def process_and_compare_image(input_path, ground_truth_path):
+    # Read the image
     image = cv2.imread(input_path)
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
 
     if image is None or ground_truth is None:
         raise ValueError("Image or ground truth not found.")
 
+    # Apply noise reduction before converting to grayscale
+    noise_reduced_image = apply_noise_reduction(image)  # Applying noise reduction on the original image
+    gray_image = convert_to_grayscale(noise_reduced_image)  # Now converting to grayscale
+
+    # Continue with your existing pipeline...
+    additionally_blurred_image = apply_additional_blur(gray_image)
+    binary_image = threshold_image(additionally_blurred_image)
+
+    # Apply morphological transformations as needed
+    morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 1)
+
+    # Invert the colors of the ground truth image to get the binary mask
     inverted_ground_truth = invert_colors(ground_truth)
     _, binary_ground_truth = cv2.threshold(inverted_ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    gray_image = convert_to_grayscale(image)
-    noise_reduced_image = apply_noise_reduction(gray_image)
-    additionally_blurred_image = apply_additional_blur(noise_reduced_image)
-    binary_image = threshold_image(additionally_blurred_image)
-
-    # Apply morphological transformation to binary_image or as needed
-    morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 5)
-
+    # Calculate mIoU score
     miou_score = calculate_miou(morphologically_transformed_image // 255, binary_ground_truth // 255)
 
-    images = [image, gray_image, noise_reduced_image, additionally_blurred_image, binary_image, binary_ground_truth, morphologically_transformed_image]
+    # Collect images for comparison
+    images = [
+        image,
+        noise_reduced_image,  # This is the noise-reduced color image
+        gray_image,
+        additionally_blurred_image,
+        binary_image,
+        binary_ground_truth,
+        morphologically_transformed_image
+    ]
     descriptions = [
         "Original Image",
+        "Noise Reduction (Original)",
         "Grayscale Conversion",
-        "Noise Reduction (Gaussian Blur)",
         "Additional Blur",
         "Binary Threshold (Otsu's Method)",
         "Inverted Ground Truth",
         "Morphological Transformation"
     ]
+
     return miou_score, images, descriptions
 
 def process_images_and_compare(directory_paths, ground_truth_directory_paths):
