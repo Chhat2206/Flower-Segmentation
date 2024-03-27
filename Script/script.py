@@ -12,8 +12,8 @@ def apply_noise_reduction(image, method='gaussian', kernel_size=7):
     else:
         raise ValueError("Unknown noise reduction method.")
 
-def apply_additional_blur(image, kernel_size=9):
-    return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+def equalize_histogram(image):
+    return cv2.equalizeHist(image)
 
 def threshold_image(image, method='otsu'):
     if method == 'otsu':
@@ -24,6 +24,16 @@ def threshold_image(image, method='otsu'):
 
 def invert_colors(image):
     return cv2.bitwise_not(image)
+
+def adaptive_threshold_image(image):
+    return cv2.adaptiveThreshold(
+        image,
+        255,
+        cv2.ADAPTIVE_THRESH_MEAN_C,
+        cv2.THRESH_BINARY,
+        blockSize=1,  # Size of a pixel neighborhood that is used to calculate a threshold value
+        C=2  # Constant subtracted from the mean or weighted mean
+    )
 
 def calculate_miou(prediction, target):
     intersection = np.logical_and(target, prediction)
@@ -38,7 +48,7 @@ def convert_to_hsv_and_split(image):
     return h, s, v
 
 # Placeholder for morphological transformations
-def apply_morphological_transformations(image, operation='open', kernel_size=5):
+def apply_morphological_transformations(image, operation='open', kernel_size=1):
     kernel = np.ones((kernel_size, kernel_size), np.uint8)
     if operation == 'open':
         return cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)
@@ -46,6 +56,18 @@ def apply_morphological_transformations(image, operation='open', kernel_size=5):
         return cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
     else:
         raise ValueError("Unknown morphological operation.")
+
+
+def apply_morphological_operations(image, kernel_size=3, operations=['erosion', 'dilation']):
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+
+    if 'erosion' in operations:
+        image = cv2.erode(image, kernel, iterations=10)
+
+    if 'dilation' in operations:
+        image = cv2.dilate(image, kernel, iterations=10)
+
+    return image
 
 def process_and_compare_image(input_path, ground_truth_path):
     # Read the image
@@ -58,10 +80,10 @@ def process_and_compare_image(input_path, ground_truth_path):
     # Apply noise reduction before converting to grayscale
     noise_reduced_image = apply_noise_reduction(image)  # Applying noise reduction on the original image
     gray_image = convert_to_grayscale(noise_reduced_image)  # Now converting to grayscale
-
-    # Continue with your existing pipeline...
-    additionally_blurred_image = apply_additional_blur(gray_image)
-    binary_image = threshold_image(additionally_blurred_image)
+    equalized_image = equalize_histogram(gray_image)
+    binary_image = threshold_image(gray_image)
+    binary_image = apply_morphological_operations(binary_image, operations=['erosion', 'dilation'])
+    binary_image = apply_morphological_operations(binary_image, operations=['erosion', 'dilation'])
 
     # Apply morphological transformations as needed
     morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 1)
@@ -70,27 +92,34 @@ def process_and_compare_image(input_path, ground_truth_path):
     inverted_ground_truth = invert_colors(ground_truth)
     _, binary_ground_truth = cv2.threshold(inverted_ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
+    # Apply erosion and dilation
+    kernel = np.ones((3, 3), np.uint8)
+    eroded_image = cv2.erode(binary_image, kernel, iterations=10)
+    dilated_image = cv2.dilate(eroded_image, kernel, iterations=4)
+
     # Calculate mIoU score
-    miou_score = calculate_miou(morphologically_transformed_image // 255, binary_ground_truth // 255)
+    miou_score = calculate_miou(dilated_image // 255, binary_ground_truth // 255)
 
     # Collect images for comparison
     images = [
         image,
         noise_reduced_image,  # This is the noise-reduced color image
         gray_image,
-        additionally_blurred_image,
         binary_image,
         binary_ground_truth,
-        morphologically_transformed_image
+        morphologically_transformed_image,
+        eroded_image,
+        dilated_image
     ]
     descriptions = [
         "Original Image",
         "Noise Reduction (Original)",
         "Grayscale Conversion",
-        "Additional Blur",
         "Binary Threshold (Otsu's Method)",
         "Inverted Ground Truth",
-        "Morphological Transformation"
+        "Morphological Transformation",
+        "Erosion",
+        "Dilation"
     ]
 
     return miou_score, images, descriptions
@@ -98,7 +127,7 @@ def process_and_compare_image(input_path, ground_truth_path):
 def process_images_and_compare(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
     total_images = 9  # Total sets of images to process
-    steps_per_set = 7  # Steps per set
+    steps_per_set = 9  # Steps per set
 
     # Adjust here for overall plotting
     fig, axs = plt.subplots(total_images, steps_per_set, figsize=(20, total_images * 2.5))
