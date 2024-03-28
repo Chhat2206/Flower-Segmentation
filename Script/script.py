@@ -16,11 +16,14 @@ def equalize_histogram(image):
     return cv2.equalizeHist(image)
 
 def threshold_image(image, method='otsu'):
+    if image.ndim > 2 and image.shape[2] == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     if method == 'otsu':
         _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return binary_image
     else:
         raise ValueError("Unknown thresholding method.")
+
 
 def invert_colors(image):
     return cv2.bitwise_not(image)
@@ -109,6 +112,22 @@ def kmeans_segmentation(image, k=2, iterations=10):
 
     return binary_mask
 
+
+def advanced_contrast_stretch(image, lower_percentile, upper_percentile):
+    # Compute the lower and upper percentile values
+    lower_bound = np.percentile(image, lower_percentile)
+    upper_bound = np.percentile(image, upper_percentile)
+
+    # Saturate values below the lower bound to 0 and above the upper bound to 255
+    image = np.clip(image, lower_bound, upper_bound)
+
+    # Scale the intensity values to the full range [0, 255]
+    image = (image - lower_bound) / (upper_bound - lower_bound) * 255
+    image = np.clip(image, 0, 255).astype(np.uint8)
+
+    return image
+
+
 def apply_bilateral_filter(image, d=9, sigma_color=75, sigma_space=75):
 
     """
@@ -174,6 +193,28 @@ def gamma_correction(image, gamma=1.0):
     # Apply gamma correction using the lookup table
     return cv2.LUT(image, table)
 
+
+def canny_edge_detection(image, sigma=0.33):
+    # Compute the median of the single channel pixel intensities
+    v = np.median(image)
+
+    # Apply automatic Canny edge detection using the computed median
+    lower = int(max(0, (1.0 - sigma) * v))
+    upper = int(min(255, (1.0 + sigma) * v))
+    edged = cv2.Canny(image, lower, upper)
+
+    return edged
+
+
+def find_and_draw_contours(image, edged):
+    # Find contours in the edged image
+    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Draw contours on the image
+    cv2.drawContours(image, contours, -1, (0, 255, 0), 2)
+
+    return image
+
 def process_and_compare_image(input_path, ground_truth_path):
 
     # Input image
@@ -181,23 +222,34 @@ def process_and_compare_image(input_path, ground_truth_path):
     if image is None:
         raise ValueError("Image not found at the path.")
 
+# Image Processing Pipeline
     # Apply bilateral filtering for noise reduction
     bilateral_filtered_image = apply_bilateral_filter(image)
 
-    # # Adjust the gain and gamma
+    stretched_image = advanced_contrast_stretch(bilateral_filtered_image, lower_percentile=5, upper_percentile=95)
+
+    # Adjust the gain and gamma
     # gain_adjusted_image = adjust_gain(bilateral_filtered_image, 1)
     # gamma_corrected_image = gamma_correction(gain_adjusted_image, 1)
 
     # Convert to grayscale
-    gray_image = convert_to_grayscale(bilateral_filtered_image)
+    gray_image = convert_to_grayscale(stretched_image)
 
+    # Apply Canny Edges
+    canny_edges = canny_edge_detection(gray_image)
+    contoured_image = find_and_draw_contours(image.copy(), canny_edges)
+
+# Otsu Segmentation
+    # Apply thresholding as the final step
+    final_segmentation = threshold_image(contoured_image, method='otsu')
+
+    # Apply Morphology
     # Apply morphological operations and visualize
-    eroded_image = apply_morphological_transformations(gray_image, 'open')
+    eroded_image = apply_morphological_transformations(final_segmentation, 'open')
     dilated_image = apply_morphological_transformations(eroded_image, 'close')
 
-    # Apply thresholding as the final step
-    final_segmentation = threshold_image(dilated_image, method='otsu')
 
+# Comparison with ground Truth
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
     if ground_truth is None:
@@ -208,7 +260,7 @@ def process_and_compare_image(input_path, ground_truth_path):
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(final_segmentation // 255, inverted_ground_truth // 255)
+    miou_score = calculate_miou(dilated_image // 255, inverted_ground_truth // 255)
 
     # Collect images for comparison
     images = [
