@@ -35,9 +35,16 @@ def adaptive_threshold_image(image):
         C=2  # Constant subtracted from the mean or weighted mean
     )
 
-def calculate_miou(prediction, target):
-    intersection = np.logical_and(target, prediction)
-    union = np.logical_or(target, prediction)
+
+def calculate_miou(prediction, target, target_original_shape):
+    # Resize target to match prediction's shape if they differ
+    if prediction.shape != target_original_shape:
+        target_resized = cv2.resize(target, (prediction.shape[1], prediction.shape[0]), interpolation=cv2.INTER_NEAREST)
+    else:
+        target_resized = target
+
+    intersection = np.logical_and(target_resized, prediction)
+    union = np.logical_or(target_resized, prediction)
     iou_score = np.sum(intersection) / np.sum(union)
     return iou_score
 
@@ -181,14 +188,78 @@ def apply_clahe(image, clip_limit=2.0, tile_grid_size=(8,8)):
     updated_image = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
     return updated_image
 
+# https://publisher.uthm.edu.my/periodicals/index.php/eeee/article/view/4412
+# The paper you've provided outlines a comprehensive approach to detecting diseases in maize plants using image processing techniques and machine learning, specifically through the implementation of k-means clustering and Support Vector Machine (SVM) classification. Here's a summary of key techniques from the paper that could be adapted for your flower extraction pipeline:
+#
+#     Image Pre-processing:
+#         Clipping: To focus on the region of interest (ROI), which can help reduce computational load and improve the accuracy of subsequent steps.
+#         Histogram Equalization: To enhance the contrast of the images, making the features more distinguishable.
+#         Median Filtering: To reduce noise from the images, which is crucial for improving the performance of segmentation and feature extraction.
+#
+#     Image Segmentation:
+#         Thresholding and Masking: To separate the leaf from the background, simplifying the detection of areas of interest such as diseases or flowers in your case.
+#         K-means Clustering: For segmenting the diseased parts from the leaf images, which could be adapted to segment flowers from the background or foliage.
+#
+#     Feature Extraction:
+#         Utilizing Gray Level Co-occurrence Matrix (GLCM) to calculate texture features such as contrast, energy, homogeneity, etc. These features can be crucial in differentiating between different types of flowers or identifying specific characteristics of flowers.
+#
+#     Classification:
+#         Support Vector Machine (SVM) classifier: To classify the images based on the extracted features. This step could be adapted to classify different types of flowers or to distinguish between healthy and diseased flowers.
+#
+#     Performance Measurement:
+#         Evaluation metrics such as Mean-Square Error (MSE), Peak Signal-to-Noise Ratio (PSNR), accuracy, sensitivity, and specificity were used to measure the effectiveness of the algorithms at each step of the process.
+#
+# To adapt these methodologies for flower extraction, you could focus on similar preprocessing steps to enhance your images. Clipping could be used to focus on the flowers, and histogram equalization along with median filtering can improve the visibility and reduce noise. For segmentation, you might adapt thresholding and k-means clustering to separate flowers from the rest of the image. Feature extraction through GLCM can help in creating a feature set that describes the flowers, which can then be classified using an SVM classifier to identify different types of flowers or health statuses.
+#
+# The specific adaptation would depend on the nature of your dataset and the objectives of your project, such as whether you're focusing on identifying different species of flowers, assessing their health, or another goal entirely.
+def select_roi(image, x, y, w, h):
+    """
+    Selects a region of interest (ROI) from an image.
+
+    Parameters:
+    - image: The original image.
+    - x: The x-coordinate of the top-left corner of the ROI.
+    - y: The y-coordinate of the top-left corner of the ROI.
+    - w: The width of the ROI.
+    - h: The height of the ROI.
+
+    Returns:
+    - roi: The selected region of interest from the image.
+    """
+    roi = image[y:y+h, x:x+w]
+    return roi
+
+
+def insert_roi_into_full_image(full_image, roi_image, x, y, w, h):
+    """
+    Inserts the processed ROI back into the full image.
+
+    Parameters:
+    - full_image: The original full-sized image.
+    - roi_image: The processed ROI.
+    - x, y: The top-left coordinates from which the ROI was extracted.
+    - w, h: The width and height of the ROI.
+    """
+    full_image[y:y+h, x:x+w] = roi_image
+    return full_image
+
+
 def process_and_compare_image(input_path, ground_truth_path):
     # Load the image
     image = cv2.imread(input_path)
     if image is None:
         raise ValueError("Image not found at the path.")
 
+    # Define coordinates for the ROI (this is an example, adjust as needed)
+    x, y, w, h = 100, 100, 200, 200
+
+    # Select ROI from the image using the updated function signature
+    roi_image = select_roi(image, x, y, w, h)
+    # Insert the processed ROI back into the full image
+    processed_full_image = insert_roi_into_full_image(image.copy(), roi_image, x, y, w, h)
+
     # Noise Reduction
-    preprocessed_image = apply_noise_reduction(image)
+    preprocessed_image = apply_noise_reduction(processed_full_image)
 
     # Bilateral filtering
     bilateral_filtered_image = apply_bilateral_filter(preprocessed_image)
@@ -210,7 +281,8 @@ def process_and_compare_image(input_path, ground_truth_path):
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255)
+    # Calculate mIoU score
+    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
     images = [image, bilateral_filtered_image, kmeans_result, inverted_ground_truth, morph_result]
