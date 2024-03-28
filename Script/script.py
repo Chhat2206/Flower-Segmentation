@@ -109,61 +109,93 @@ def kmeans_segmentation(image, k=2, iterations=10):
 
     return binary_mask
 
+def apply_bilateral_filter(image, d=9, sigma_color=75, sigma_space=75):
 
-def apply_watershed_segmentation(image):
-    # Convert to grayscale and apply a binary threshold
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    """
 
-    # Noise removal (optional, based on your image)
-    kernel = np.ones((3, 3), np.uint8)
-    opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+    Apply bilateral filtering to reduce noise while preserving edges.
 
-    # Sure background area
-    sure_bg = cv2.dilate(opening, kernel, iterations=3)
 
-    # Finding sure foreground area
-    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    ret, sure_fg = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
 
-    # Finding unknown region
-    sure_fg = np.uint8(sure_fg)
-    unknown = cv2.subtract(sure_bg, sure_fg)
+    Parameters:
 
-    # Marker labelling
-    ret, markers = cv2.connectedComponents(sure_fg)
+    - image: The input image
 
-    # Add one to all labels so that sure background is not 0, but 1
-    markers = markers + 1
+    - d: Diameter of each pixel neighborhood used during filtering
 
-    # Now, mark the region of unknown with zero
-    markers[unknown == 255] = 0
+    - sigma_color: Value for filter sigma in the color space
 
-    # Apply watershed
-    markers = cv2.watershed(image, markers)
-    image[markers == -1] = [255, 0, 0]  # Mark boundaries with red
+    - sigma_space: Value for filter sigma in the coordinate space
 
-    return image
+
+
+    Returns:
+
+    - The filtered image
+
+    """
+
+    return cv2.bilateralFilter(image, d, sigma_color, sigma_space)
+
+def adjust_gain(image, gain=1.0):
+    """
+    Adjusts the gain (brightness) of an image.
+
+    Parameters:
+    - image: Input image
+    - gain: Factor by which to multiply pixel values
+
+    Returns:
+    - The brightness adjusted image
+    """
+    # Convert to float to avoid clipping during multiplication
+    f_image = image.astype(np.float32)
+    # Multiply the image by the gain factor
+    f_image = cv2.multiply(f_image, np.array([gain]))
+    # Clip values to the range [0, 255] and convert back to uint8
+    adjusted_image = np.clip(f_image, 0, 255).astype(np.uint8)
+    return adjusted_image
+
+def gamma_correction(image, gamma=1.0):
+    """
+    Performs gamma correction on an image.
+
+    Parameters:
+    - image: Input image
+    - gamma: Gamma value for correction
+
+    Returns:
+    - The gamma corrected image
+    """
+    # Build a lookup table mapping pixel values [0, 255] to their adjusted gamma values
+    invGamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(256)]).astype(np.uint8)
+
+    # Apply gamma correction using the lookup table
+    return cv2.LUT(image, table)
 
 def process_and_compare_image(input_path, ground_truth_path):
-    # Read the image
+
+    # Input image
     image = cv2.imread(input_path)
     if image is None:
         raise ValueError("Image not found at the path.")
 
-    # Apply noise reduction
-    noise_reduced_image = apply_noise_reduction(image)
+    # Apply bilateral filtering for noise reduction
+    bilateral_filtered_image = apply_bilateral_filter(image)
+
+    # # Adjust the gain and gamma
+    # gain_adjusted_image = adjust_gain(bilateral_filtered_image, 1)
+    # gamma_corrected_image = gamma_correction(gain_adjusted_image, 1)
 
     # Convert to grayscale
-    gray_image = convert_to_grayscale(noise_reduced_image)  # Use the noise-reduced image to convert to grayscale
+    gray_image = convert_to_grayscale(bilateral_filtered_image)
 
-    # Apply erosion and visualize
-    eroded_image = cv2.erode(gray_image, np.ones((3, 3), np.uint8), iterations=1)  # Adjust iterations as needed
+    # Apply morphological operations and visualize
+    eroded_image = apply_morphological_transformations(gray_image, 'open')
+    dilated_image = apply_morphological_transformations(eroded_image, 'close')
 
-    # Apply dilation and visualize
-    dilated_image = cv2.dilate(eroded_image, np.ones((3, 3), np.uint8), iterations=1)  # Adjust iterations as needed
-
-    # Apply Otsu's thresholding as the final step on the dilated image
+    # Apply thresholding as the final step
     final_segmentation = threshold_image(dilated_image, method='otsu')
 
     # Process the ground truth
@@ -171,22 +203,32 @@ def process_and_compare_image(input_path, ground_truth_path):
     if ground_truth is None:
         raise ValueError("Ground truth image not found at the path.")
 
-    # Make the ground truth binary using Otsu's method and invert it
+    # Make the ground truth binary and invert it
     _, binary_ground_truth = cv2.threshold(ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
     miou_score = calculate_miou(final_segmentation // 255, inverted_ground_truth // 255)
 
-    # Collect images for comparison, including erosion and dilation steps
+    # Collect images for comparison
     images = [
-        image, noise_reduced_image, gray_image, eroded_image, dilated_image,
-        final_segmentation, inverted_ground_truth
+        image, bilateral_filtered_image, gray_image, eroded_image,
+        dilated_image, final_segmentation, inverted_ground_truth
     ]
     descriptions = [
-        "Original Image", "Noise Reduction", "Grayscale", "Erosion",
-        "Dilation", "Final Segmentation (Otsu)", "Inverted Ground Truth"
+        "Original Image", "Bilateral Noise Reduction",
+        "Grayscale", "Erosion (Open)", "Dilation (Close)", "Final Segmentation (Otsu)", "Inverted Ground Truth"
     ]
+
+    # # Collect images for comparison
+    # images = [
+    #     image, bilateral_filtered_image, gain_adjusted_image, gamma_corrected_image, gray_image, eroded_image,
+    #     dilated_image, final_segmentation, inverted_ground_truth
+    # ]
+    # descriptions = [
+    #     "Original Image", "Bilateral Noise Reduction", "Gain Adjustment", "Gamma Correction",
+    #     "Grayscale", "Erosion (Open)", "Dilation (Close)", "Final Segmentation (Otsu)", "Inverted Ground Truth"
+    # ]
 
     return miou_score, images, descriptions
 
