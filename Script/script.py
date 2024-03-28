@@ -243,6 +243,45 @@ def insert_roi_into_full_image(full_image, roi_image, x, y, w, h):
     full_image[y:y+h, x:x+w] = roi_image
     return full_image
 
+def find_roi_contours(image, lower_hue, lower_saturation, lower_value, upper_hue, upper_saturation, upper_value):
+    # Convert image to HSV color space
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    # Define color range for segmentation based on the parameters
+    lower_bound = np.array([lower_hue, lower_saturation, lower_value])
+    upper_bound = np.array([upper_hue, upper_saturation, upper_value])
+
+    # Threshold the image to get only the colors in the defined range
+    mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
+
+    # Find contours in the mask
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    return contours
+
+
+def detect_flower_color(image):
+    # Convert to HSV color space
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    # Define ranges for yellow and white colors
+    yellow_lower = np.array([20, 100, 100], np.uint8)
+    yellow_upper = np.array([30, 255, 255], np.uint8)
+    white_lower = np.array([0, 0, 200], np.uint8)
+    white_upper = np.array([180, 55, 255], np.uint8)
+
+    # Threshold the HSV image to get only the colors within the range
+    yellow_mask = cv2.inRange(hsv_image, yellow_lower, yellow_upper)
+    white_mask = cv2.inRange(hsv_image, white_lower, white_upper)
+
+    # Compare the number of pixels for each color
+    yellow_count = cv2.countNonZero(yellow_mask)
+    white_count = cv2.countNonZero(white_mask)
+
+    if yellow_count >= white_count:
+        return 'yellow', yellow_mask
+    else:
+        return 'white', white_mask
 
 def process_and_compare_image(input_path, ground_truth_path):
     # Load the image
@@ -250,8 +289,33 @@ def process_and_compare_image(input_path, ground_truth_path):
     if image is None:
         raise ValueError("Image not found at the path.")
 
-    # Define coordinates for the ROI (this is an example, adjust as needed)
-    x, y, w, h = 100, 100, 200, 200
+    dominant_color, _ = detect_flower_color(image)
+
+    if dominant_color == 'yellow':
+        # Adjust the HSV range for yellow flowers
+        lower_hue = 20  # Example value, adjust based on your needs
+        lower_saturation = 100  # Example value
+        lower_value = 100  # Example value
+        upper_hue = 30  # Example value
+        upper_saturation = 255  # Example value
+        upper_value = 255  # Example value
+    else:
+        # Default HSV range (suited for white flowers or general use)
+        lower_hue = 0
+        lower_saturation = 0
+        lower_value = 200
+        upper_hue = 200
+        upper_saturation = 30
+        upper_value = 255
+
+    # Now call find_roi_contours with the adjusted HSV range
+    contours = find_roi_contours(image, lower_hue, lower_saturation, lower_value, upper_hue, upper_saturation,
+                                 upper_value)
+
+    # Draw contours on the image to visualize the ROIs
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
     # Select ROI from the image using the updated function signature
     roi_image = select_roi(image, x, y, w, h)
@@ -280,7 +344,6 @@ def process_and_compare_image(input_path, ground_truth_path):
     # Invert colors if necessary
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
-    # Calculate mIoU score
     # Calculate mIoU score
     miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
