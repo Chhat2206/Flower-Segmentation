@@ -48,26 +48,18 @@ def convert_to_hsv_and_split(image):
     return h, s, v
 
 # Placeholder for morphological transformations
-def apply_morphological_transformations(image, operation='open', kernel_size=1):
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    if operation == 'open':
-        return cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)
-    elif operation == 'close':
-        return cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
-    else:
-        raise ValueError("Unknown morphological operation.")
+def apply_morphological_operations(image, close_kernel_size=3, open_kernel_size=3):
+    # Create structuring elements for morphological operations
+    close_kernel = np.ones((close_kernel_size, close_kernel_size), np.uint8)
+    open_kernel = np.ones((open_kernel_size, open_kernel_size), np.uint8)
 
+    # Closing: Dilation followed by Erosion to fill holes
+    closing = cv2.morphologyEx(image, cv2.MORPH_CLOSE, close_kernel)
 
-def apply_morphological_operations(image, kernel_size=3, operations=['erosion', 'dilation']):
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    # Opening: Erosion followed by Dilation to remove noise
+    opening = cv2.morphologyEx(closing, cv2.MORPH_OPEN, open_kernel)
 
-    if 'erosion' in operations:
-        image = cv2.erode(image, kernel, iterations=10)
-
-    if 'dilation' in operations:
-        image = cv2.dilate(image, kernel, iterations=10)
-
-    return image
+    return opening
 
 def segment_flower_using_color(image):
     # Convert to HSV color space
@@ -86,28 +78,6 @@ def segment_flower_using_color(image):
     clean_mask = cv2.morphologyEx(clean_mask, cv2.MORPH_OPEN, kernel)
 
     return clean_mask
-
-def kmeans_segmentation(image, k=2, iterations=10):
-    # Convert to a floating-point precision as required by cv2.kmeans
-    Z = image.reshape((-1, 3)).astype(np.float32)
-
-    # Define criteria and apply kmeans()
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, iterations, 1.0)
-    _, label, center = cv2.kmeans(Z, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-
-    # Convert back to uint8 and reshape to the image shape
-    center = np.uint8(center)
-    res = center[label.flatten()]
-    segmented_image = res.reshape((image.shape))
-
-    # Assuming the flower is the lighter object, get the cluster with higher intensity
-    brightness = np.sum(center, axis=1)
-    flower_cluster = np.argmax(brightness)
-
-    # Create a binary mask where the flower cluster has value 1, the rest 0
-    binary_mask = (label == flower_cluster).reshape((image.shape[0], image.shape[1])).astype(np.uint8) * 255
-
-    return binary_mask
 
 def apply_bilateral_filter(image, d=9, sigma_color=75, sigma_space=75):
 
@@ -174,61 +144,77 @@ def gamma_correction(image, gamma=1.0):
     # Apply gamma correction using the lookup table
     return cv2.LUT(image, table)
 
-def process_and_compare_image(input_path, ground_truth_path):
 
-    # Input image
+def apply_kmeans(image, K=2):
+    # Convert image into a feature vector
+    pixel_values = image.reshape((-1, 3))
+    pixel_values = np.float32(pixel_values)
+
+    # Define criteria and apply kmeans()
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+    _, labels, (centers) = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+    # Convert back to 8 bit values
+    centers = np.uint8(centers)
+
+    # Map labels to center values
+    segmented_image = centers[labels.flatten()]
+    segmented_image = segmented_image.reshape(image.shape)
+
+    # Assuming the flower is brighter, find which cluster is brighter
+    brightness = np.sum(centers, axis=1)
+    flower_cluster = np.argmax(brightness)
+
+    # Create a mask where the brighter cluster is white, and the other is black
+    mask = np.where(labels == flower_cluster, 255, 0)
+    mask = mask.astype(np.uint8)
+    mask = mask.reshape((image.shape[0], image.shape[1]))
+
+    return mask
+
+def apply_clahe(image, clip_limit=2.0, tile_grid_size=(8,8)):
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
+    lab_planes = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+    lab_planes[0] = clahe.apply(lab_planes[0])
+    lab = cv2.merge(lab_planes)
+    updated_image = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
+    return updated_image
+
+def process_and_compare_image(input_path, ground_truth_path):
+    # Load the image
     image = cv2.imread(input_path)
     if image is None:
         raise ValueError("Image not found at the path.")
 
-    # Apply bilateral filtering for noise reduction
-    bilateral_filtered_image = apply_bilateral_filter(image)
+    # Noise Reduction
+    preprocessed_image = apply_noise_reduction(image)
 
-    # # Adjust the gain and gamma
-    # gain_adjusted_image = adjust_gain(bilateral_filtered_image, 1)
-    # gamma_corrected_image = gamma_correction(gain_adjusted_image, 1)
+    # Bilateral filtering
+    bilateral_filtered_image = apply_bilateral_filter(preprocessed_image)
 
-    # Convert to grayscale
-    gray_image = convert_to_grayscale(bilateral_filtered_image)
+    # Apply K-means clustering for segmentation
+    kmeans_result = apply_kmeans(bilateral_filtered_image)
 
-    # Apply morphological operations and visualize
-    eroded_image = apply_morphological_transformations(gray_image, 'open')
-    dilated_image = apply_morphological_transformations(eroded_image, 'close')
-
-    # Apply thresholding as the final step
-    final_segmentation = threshold_image(dilated_image, method='otsu')
+    # Morphological Operations to refine the segmentation
+    morph_result = apply_morphological_operations(kmeans_result)
 
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
     if ground_truth is None:
         raise ValueError("Ground truth image not found at the path.")
 
-    # Make the ground truth binary and invert it
     _, binary_ground_truth = cv2.threshold(ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Invert colors if necessary
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(final_segmentation // 255, inverted_ground_truth // 255)
+    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255)
 
     # Collect images for comparison
-    images = [
-        image, bilateral_filtered_image, gray_image, eroded_image,
-        dilated_image, final_segmentation, inverted_ground_truth
-    ]
-    descriptions = [
-        "Original Image", "Bilateral Noise Reduction",
-        "Grayscale", "Erosion (Open)", "Dilation (Close)", "Final Segmentation (Otsu)", "Inverted Ground Truth"
-    ]
-
-    # # Collect images for comparison
-    # images = [
-    #     image, bilateral_filtered_image, gain_adjusted_image, gamma_corrected_image, gray_image, eroded_image,
-    #     dilated_image, final_segmentation, inverted_ground_truth
-    # ]
-    # descriptions = [
-    #     "Original Image", "Bilateral Noise Reduction", "Gain Adjustment", "Gamma Correction",
-    #     "Grayscale", "Erosion (Open)", "Dilation (Close)", "Final Segmentation (Otsu)", "Inverted Ground Truth"
-    # ]
+    images = [image, bilateral_filtered_image, kmeans_result, inverted_ground_truth, morph_result]
+    descriptions = ["Original Image", "Preprocessed Image", "K-means Result", "Inverted Ground Truth", "Morphology"]
 
     return miou_score, images, descriptions
 
