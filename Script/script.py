@@ -69,60 +69,127 @@ def apply_morphological_operations(image, kernel_size=3, operations=['erosion', 
 
     return image
 
+def segment_flower_using_color(image):
+    # Convert to HSV color space
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    # Define the color range for yellow flowers
+    lower_yellow = np.array([20, 100, 100])
+    upper_yellow = np.array([30, 255, 255])
+
+    # Create a mask for the yellow color
+    mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
+
+    # Apply morphological operations to clean up the mask
+    kernel = np.ones((5, 5), np.uint8)
+    clean_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    clean_mask = cv2.morphologyEx(clean_mask, cv2.MORPH_OPEN, kernel)
+
+    return clean_mask
+
+def kmeans_segmentation(image, k=2, iterations=10):
+    # Convert to a floating-point precision as required by cv2.kmeans
+    Z = image.reshape((-1, 3)).astype(np.float32)
+
+    # Define criteria and apply kmeans()
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, iterations, 1.0)
+    _, label, center = cv2.kmeans(Z, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+    # Convert back to uint8 and reshape to the image shape
+    center = np.uint8(center)
+    res = center[label.flatten()]
+    segmented_image = res.reshape((image.shape))
+
+    # Assuming the flower is the lighter object, get the cluster with higher intensity
+    brightness = np.sum(center, axis=1)
+    flower_cluster = np.argmax(brightness)
+
+    # Create a binary mask where the flower cluster has value 1, the rest 0
+    binary_mask = (label == flower_cluster).reshape((image.shape[0], image.shape[1])).astype(np.uint8) * 255
+
+    return binary_mask
+
+
+def apply_watershed_segmentation(image):
+    # Convert to grayscale and apply a binary threshold
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # Noise removal (optional, based on your image)
+    kernel = np.ones((3, 3), np.uint8)
+    opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+
+    # Sure background area
+    sure_bg = cv2.dilate(opening, kernel, iterations=3)
+
+    # Finding sure foreground area
+    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+    ret, sure_fg = cv2.threshold(dist_transform, 0.7 * dist_transform.max(), 255, 0)
+
+    # Finding unknown region
+    sure_fg = np.uint8(sure_fg)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # Marker labelling
+    ret, markers = cv2.connectedComponents(sure_fg)
+
+    # Add one to all labels so that sure background is not 0, but 1
+    markers = markers + 1
+
+    # Now, mark the region of unknown with zero
+    markers[unknown == 255] = 0
+
+    # Apply watershed
+    markers = cv2.watershed(image, markers)
+    image[markers == -1] = [255, 0, 0]  # Mark boundaries with red
+
+    return image
+
 def process_and_compare_image(input_path, ground_truth_path):
     # Read the image
     image = cv2.imread(input_path)
+    if image is None:
+        raise ValueError("Image not found at the path.")
+
+    # Apply noise reduction
+    noise_reduced_image = apply_noise_reduction(image)
+
+    # Convert to grayscale
+    gray_image = convert_to_grayscale(noise_reduced_image)  # Use the noise-reduced image to convert to grayscale
+
+    # Apply erosion and visualize
+    eroded_image = cv2.erode(gray_image, np.ones((3, 3), np.uint8), iterations=1)  # Adjust iterations as needed
+
+    # Apply dilation and visualize
+    dilated_image = cv2.dilate(eroded_image, np.ones((3, 3), np.uint8), iterations=1)  # Adjust iterations as needed
+
+    # Apply Otsu's thresholding as the final step on the dilated image
+    final_segmentation = threshold_image(dilated_image, method='otsu')
+
+    # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
+    if ground_truth is None:
+        raise ValueError("Ground truth image not found at the path.")
 
-    if image is None or ground_truth is None:
-        raise ValueError("Image or ground truth not found.")
-
-    # Apply noise reduction before converting to grayscale
-    noise_reduced_image = apply_noise_reduction(image)  # Applying noise reduction on the original image
-    gray_image = convert_to_grayscale(noise_reduced_image)  # Now converting to grayscale
-    equalized_image = equalize_histogram(gray_image)
-    binary_image = threshold_image(gray_image)
-    binary_image = apply_morphological_operations(binary_image, operations=['erosion', 'dilation'])
-    binary_image = apply_morphological_operations(binary_image, operations=['erosion', 'dilation'])
-
-    # Apply morphological transformations as needed
-    morphologically_transformed_image = apply_morphological_transformations(binary_image, 'open', 1)
-
-    # Invert the colors of the ground truth image to get the binary mask
-    inverted_ground_truth = invert_colors(ground_truth)
-    _, binary_ground_truth = cv2.threshold(inverted_ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # Apply erosion and dilation
-    kernel = np.ones((3, 3), np.uint8)
-    eroded_image = cv2.erode(binary_image, kernel, iterations=10)
-    dilated_image = cv2.dilate(eroded_image, kernel, iterations=4)
+    # Make the ground truth binary using Otsu's method and invert it
+    _, binary_ground_truth = cv2.threshold(ground_truth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(dilated_image // 255, binary_ground_truth // 255)
+    miou_score = calculate_miou(final_segmentation // 255, inverted_ground_truth // 255)
 
-    # Collect images for comparison
+    # Collect images for comparison, including erosion and dilation steps
     images = [
-        image,
-        noise_reduced_image,  # This is the noise-reduced color image
-        gray_image,
-        binary_image,
-        binary_ground_truth,
-        morphologically_transformed_image,
-        eroded_image,
-        dilated_image
+        image, noise_reduced_image, gray_image, eroded_image, dilated_image,
+        final_segmentation, inverted_ground_truth
     ]
     descriptions = [
-        "Original Image",
-        "Noise Reduction (Original)",
-        "Grayscale Conversion",
-        "Binary Threshold (Otsu's Method)",
-        "Inverted Ground Truth",
-        "Morphological Transformation",
-        "Erosion",
-        "Dilation"
+        "Original Image", "Noise Reduction", "Grayscale", "Erosion",
+        "Dilation", "Final Segmentation (Otsu)", "Inverted Ground Truth"
     ]
 
     return miou_score, images, descriptions
+
 
 def process_images_and_compare(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
