@@ -184,19 +184,11 @@ def process_and_compare_image(input_path, ground_truth_path):
     # Apply bilateral filtering for noise reduction
     bilateral_filtered_image = apply_bilateral_filter(image)
 
-    # # Adjust the gain and gamma
-    # gain_adjusted_image = adjust_gain(bilateral_filtered_image, 1)
-    # gamma_corrected_image = gamma_correction(gain_adjusted_image, 1)
-
     # Convert to grayscale
     gray_image = convert_to_grayscale(bilateral_filtered_image)
 
-    # Apply morphological operations and visualize
-    eroded_image = apply_morphological_transformations(gray_image, 'open')
-    dilated_image = apply_morphological_transformations(eroded_image, 'close')
 
-    # Apply thresholding as the final step
-    final_segmentation = threshold_image(dilated_image, method='otsu')
+    final_segmentation = threshold_image(gray_image, method='otsu')
 
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
@@ -212,24 +204,12 @@ def process_and_compare_image(input_path, ground_truth_path):
 
     # Collect images for comparison
     images = [
-        image, bilateral_filtered_image, gray_image, eroded_image,
-        dilated_image, final_segmentation, inverted_ground_truth
+        image, bilateral_filtered_image, gray_image, final_segmentation, inverted_ground_truth
     ]
     descriptions = [
         "Original Image", "Bilateral Noise Reduction",
-        "Grayscale", "Erosion (Open)", "Dilation (Close)", "Final Segmentation (Otsu)", "Inverted Ground Truth"
+        "Grayscale", "Final Segmentation (Otsu)", "Inverted Ground Truth"
     ]
-
-    # # Collect images for comparison
-    # images = [
-    #     image, bilateral_filtered_image, gain_adjusted_image, gamma_corrected_image, gray_image, eroded_image,
-    #     dilated_image, final_segmentation, inverted_ground_truth
-    # ]
-    # descriptions = [
-    #     "Original Image", "Bilateral Noise Reduction", "Gain Adjustment", "Gamma Correction",
-    #     "Grayscale", "Erosion (Open)", "Dilation (Close)", "Final Segmentation (Otsu)", "Inverted Ground Truth"
-    # ]
-
     return miou_score, images, descriptions
 
 
