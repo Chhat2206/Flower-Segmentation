@@ -179,39 +179,6 @@ def apply_kmeans(image, K=2):
 
     return mask
 
-def apply_clahe(image, clip_limit=2.0, tile_grid_size=(8,8)):
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
-    lab_planes = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-    lab_planes[0] = clahe.apply(lab_planes[0])
-    lab = cv2.merge(lab_planes)
-    updated_image = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
-    return updated_image
-
-# https://publisher.uthm.edu.my/periodicals/index.php/eeee/article/view/4412
-# The paper you've provided outlines a comprehensive approach to detecting diseases in maize plants using image processing techniques and machine learning, specifically through the implementation of k-means clustering and Support Vector Machine (SVM) classification. Here's a summary of key techniques from the paper that could be adapted for your flower extraction pipeline:
-#
-#     Image Pre-processing:
-#         Clipping: To focus on the region of interest (ROI), which can help reduce computational load and improve the accuracy of subsequent steps.
-#         Histogram Equalization: To enhance the contrast of the images, making the features more distinguishable.
-#         Median Filtering: To reduce noise from the images, which is crucial for improving the performance of segmentation and feature extraction.
-#
-#     Image Segmentation:
-#         Thresholding and Masking: To separate the leaf from the background, simplifying the detection of areas of interest such as diseases or flowers in your case.
-#         K-means Clustering: For segmenting the diseased parts from the leaf images, which could be adapted to segment flowers from the background or foliage.
-#
-#     Feature Extraction:
-#         Utilizing Gray Level Co-occurrence Matrix (GLCM) to calculate texture features such as contrast, energy, homogeneity, etc. These features can be crucial in differentiating between different types of flowers or identifying specific characteristics of flowers.
-#
-#     Classification:
-#         Support Vector Machine (SVM) classifier: To classify the images based on the extracted features. This step could be adapted to classify different types of flowers or to distinguish between healthy and diseased flowers.
-#
-#     Performance Measurement:
-#         Evaluation metrics such as Mean-Square Error (MSE), Peak Signal-to-Noise Ratio (PSNR), accuracy, sensitivity, and specificity were used to measure the effectiveness of the algorithms at each step of the process.
-#
-# To adapt these methodologies for flower extraction, you could focus on similar preprocessing steps to enhance your images. Clipping could be used to focus on the flowers, and histogram equalization along with median filtering can improve the visibility and reduce noise. For segmentation, you might adapt thresholding and k-means clustering to separate flowers from the rest of the image. Feature extraction through GLCM can help in creating a feature set that describes the flowers, which can then be classified using an SVM classifier to identify different types of flowers or health statuses.
-#
-# The specific adaptation would depend on the nature of your dataset and the objectives of your project, such as whether you're focusing on identifying different species of flowers, assessing their health, or another goal entirely.
 def select_roi(image, x, y, w, h):
     """
     Selects a region of interest (ROI) from an image.
@@ -283,53 +250,27 @@ def detect_flower_color(image):
     else:
         return 'white', white_mask
 
+# https://publisher.uthm.edu.my/periodicals/index.php/eeee/article/view/441
+# not sure it does anything
+def apply_median_filter(image, kernel_size=5):
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size must be an odd number.")
+    return cv2.medianBlur(image, kernel_size)
+
+
 def process_and_compare_image(input_path, ground_truth_path):
     # Load the image
     image = cv2.imread(input_path)
-    if image is None:
-        raise ValueError("Image not found at the path.")
 
-    dominant_color, _ = detect_flower_color(image)
+    # Proceed with bilateral filtering or other image processing steps
+    bilateral_filtered_image = apply_bilateral_filter(image)
 
-    if dominant_color == 'yellow':
-        # Adjust the HSV range for yellow flowers
-        lower_hue = 20  # Example value, adjust based on your needs
-        lower_saturation = 100  # Example value
-        lower_value = 100  # Example value
-        upper_hue = 30  # Example value
-        upper_saturation = 255  # Example value
-        upper_value = 255  # Example value
-    else:
-        # Default HSV range (suited for white flowers or general use)
-        lower_hue = 0
-        lower_saturation = 0
-        lower_value = 200
-        upper_hue = 200
-        upper_saturation = 30
-        upper_value = 255
+    # Apply median filtering
+    median_filtered_image = apply_median_filter(bilateral_filtered_image, kernel_size=9)
 
-    # Now call find_roi_contours with the adjusted HSV range
-    contours = find_roi_contours(image, lower_hue, lower_saturation, lower_value, upper_hue, upper_saturation,
-                                 upper_value)
-
-    # Draw contours on the image to visualize the ROIs
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-    # Select ROI from the image using the updated function signature
-    roi_image = select_roi(image, x, y, w, h)
-    # Insert the processed ROI back into the full image
-    processed_full_image = insert_roi_into_full_image(image.copy(), roi_image, x, y, w, h)
-
-    # Noise Reduction
-    preprocessed_image = apply_noise_reduction(processed_full_image)
-
-    # Bilateral filtering
-    bilateral_filtered_image = apply_bilateral_filter(preprocessed_image)
 
     # Apply K-means clustering for segmentation
-    kmeans_result = apply_kmeans(bilateral_filtered_image)
+    kmeans_result = apply_kmeans(median_filtered_image)
 
     # Morphological Operations to refine the segmentation
     morph_result = apply_morphological_operations(kmeans_result)
