@@ -111,6 +111,13 @@ def apply_watershed(image, segmentation_mask):
 
     return segmentation
 
+def close_gaps_in_flower(mask, kernel_size=10):
+    # Create a large structuring element for closing operation
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    # Closing: Dilation followed by Erosion to fill holes
+    closed_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    return closed_mask
+
 def process_and_compare_image(input_path, ground_truth_path):
     # Load the image
     image = cv2.imread(input_path)
@@ -133,6 +140,9 @@ def process_and_compare_image(input_path, ground_truth_path):
     # Morphological Operations to further refine the segmentation
     morph_result = apply_morphological_operations(watershed_result)
 
+    # Fill the gaps inside the flower
+    filled_flower_mask = close_gaps_in_flower(morph_result)
+
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
     if ground_truth is None:
@@ -144,11 +154,11 @@ def process_and_compare_image(input_path, ground_truth_path):
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
+    miou_score = calculate_miou(filled_flower_mask // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
-    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result]
-    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
+    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result, filled_flower_mask]
+    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result", "filled_flower_mask"]
 
     return miou_score, images, descriptions
 
