@@ -37,30 +37,43 @@ def apply_morphological_operations(image, close_kernel_size=3, open_kernel_size=
 def apply_bilateral_filter(image, d=9, sigma_color=75, sigma_space=75):
     return cv2.bilateralFilter(image, d, sigma_color, sigma_space)
 
+def find_largest_contour(mask):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    largest_contour = max(contours, key=cv2.contourArea)
+    return largest_contour
+
+def create_mask_from_contour(shape, contour):
+    mask = np.zeros(shape, dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, (255), thickness=cv2.FILLED)
+    return mask
+
 def apply_kmeans(image, K=2):
-    # Check if the image is grayscale. If so, convert it to a 3-channel format.
-    if len(image.shape) == 2:
+    # If the image is grayscale, convert it back to BGR
+    if len(image.shape) == 2 or image.shape[2] == 1:
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
-    # Convert image into a feature vector
-    pixel_values = image.reshape((-1, 3))
+    # Convert the image to the HSV color space
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+    # Reshape the image to a 2D array of pixels and 3 color values (HSV)
+    pixel_values = hsv_image.reshape((-1, 3))
     pixel_values = np.float32(pixel_values)
 
     # Define criteria and apply kmeans()
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
     _, labels, (centers) = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
 
-    # Assuming that we are interested in the brighter cluster (flower is typically brighter)
-    # Compute the mean intensity of each cluster and select the brighter one as the flower
-    mean_intensity = np.mean(centers, axis=1)
-    flower_label = np.argmax(mean_intensity)
+    # Create a mask based on the labels
+    mask = labels.reshape(hsv_image.shape[:2])
 
-    # Construct the mask based on the identified flower cluster
-    mask = np.zeros(labels.shape, dtype=np.uint8)
-    mask[labels == flower_label] = 255
-    mask = mask.reshape((image.shape[0], image.shape[1]))
+    # Choose which label corresponds to the flower
+    # This can be improved with a more complex logic
+    flower_label = 1 if np.sum(centers[0]) < np.sum(centers[1]) else 0
 
-    return mask
+    # Create a binary mask where the flower label is white, and the rest is black
+    flower_mask = np.where(mask == flower_label, 255, 0).astype('uint8')
+
+    return flower_mask
 
 
 # https://publisher.uthm.edu.my/periodicals/index.php/eeee/article/view/441
@@ -84,12 +97,31 @@ def process_and_compare_image(input_path, ground_truth_path):
     # Apply median filtering
     median_filtered_image = apply_median_filter(grayscale_image, kernel_size=9)
 
-    # Apply K-means clustering for segmentation
-    kmeans_result = apply_kmeans(median_filtered_image)
+    # Convert grayscale to BGR before applying K-means
+    median_filtered_bgr = cv2.cvtColor(median_filtered_image, cv2.COLOR_GRAY2BGR)
 
-    # Morphological Operations to refine the segmentation
-    morph_result = apply_morphological_operations(kmeans_result)
+    # Apply K-means clustering for segmentation on BGR image
+    kmeans_result = apply_kmeans(median_filtered_bgr)
 
+    # Find the largest contour in the K-means result
+    largest_contour = find_largest_contour(kmeans_result)
+
+    # Draw contours on the image for visualization
+    contour_image = cv2.drawContours(image.copy(), [largest_contour], -1, (0, 255, 0), 2)
+
+    # Create an ROI mask from the largest contour
+    roi_mask = create_mask_from_contour(kmeans_result.shape, largest_contour)
+
+    # Visualize the ROI mask
+    roi_mask_vis = roi_mask.copy()
+    contour_idx = 0  # Index of the largest contour
+    cv2.drawContours(roi_mask_vis, [largest_contour], contour_idx, (255), 2)
+
+    # Refine the K-means result using the ROI mask
+    refined_kmeans_result = cv2.bitwise_and(kmeans_result, kmeans_result, mask=roi_mask)
+
+    # Morphological Operations to refine the segmentation further
+    morph_result = apply_morphological_operations(refined_kmeans_result)
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
     if ground_truth is None:
@@ -104,10 +136,10 @@ def process_and_compare_image(input_path, ground_truth_path):
     miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
-    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_result, inverted_ground_truth,
-              morph_result]
-    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means", "Inverted Ground Truth",
-                    "Morphology"]
+    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_result, roi_mask_vis,
+              contour_image, refined_kmeans_result, inverted_ground_truth, morph_result]
+    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means", "ROI Mask",
+                    "Contours", "Refined K-Means", "Inverted Ground Truth", "Morphology"]
 
     return miou_score, images, descriptions
 
@@ -115,7 +147,7 @@ def process_and_compare_image(input_path, ground_truth_path):
 def process_images_and_compare(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
     total_images = 9  # Total sets of images to process
-    steps_per_set = 9  # Steps per set
+    steps_per_set = 12  # Steps per set
 
     # Adjust here for overall plotting
     fig, axs = plt.subplots(total_images, steps_per_set, figsize=(20, total_images * 2.5))
