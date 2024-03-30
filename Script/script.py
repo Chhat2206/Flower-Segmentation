@@ -72,7 +72,7 @@ def apply_median_filter(image, kernel_size=5):
 
 
 def apply_watershed(image, segmentation_mask):
-    # Convert segmentation mask to binary format if necessary
+    # Convert segmentation mask to binary format
     _, binary_mask = cv2.threshold(segmentation_mask, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
     # Noise reduction in the binary mask
@@ -202,7 +202,7 @@ directory_paths = {
     'hard': 'input-images/hard'
 }
 ground_truth_directory_paths = {
-    'easy': 'ground_truths/easy',2
+    'easy': 'ground_truths/easy',
     'medium': 'ground_truths/medium',
     'hard': 'ground_truths/hard'
 }
