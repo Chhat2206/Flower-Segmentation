@@ -3,49 +3,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 
-def convert_to_grayscale(image):
-    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-def apply_noise_reduction(image, method='gaussian', kernel_size=7):
-    if method == 'gaussian':
-        return cv2.GaussianBlur(image, (kernel_size, kernel_size), 5)
-    else:
-        raise ValueError("Unknown noise reduction method.")
-
-def equalize_histogram(image):
-    return cv2.equalizeHist(image)
-
-def threshold_image(image, method='otsu'):
-    if method == 'otsu':
-        _, binary_image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        return binary_image
-    else:
-        raise ValueError("Unknown thresholding method.")
-
 def invert_colors(image):
     return cv2.bitwise_not(image)
 
-def adaptive_threshold_image(image):
-    return cv2.adaptiveThreshold(
-        image,
-        255,
-        cv2.ADAPTIVE_THRESH_MEAN_C,
-        cv2.THRESH_BINARY,
-        blockSize=1,  # Size of a pixel neighborhood that is used to calculate a threshold value
-        C=2  # Constant subtracted from the mean or weighted mean
-    )
+def calculate_miou(prediction, target, target_original_shape):
+    # Resize target to match prediction's shape if they differ
+    if prediction.shape != target_original_shape:
+        target_resized = cv2.resize(target, (prediction.shape[1], prediction.shape[0]), interpolation=cv2.INTER_NEAREST)
+    else:
+        target_resized = target
 
-def calculate_miou(prediction, target):
-    intersection = np.logical_and(target, prediction)
-    union = np.logical_or(target, prediction)
+    intersection = np.logical_and(target_resized, prediction)
+    union = np.logical_or(target_resized, prediction)
     iou_score = np.sum(intersection) / np.sum(union)
     return iou_score
-
-# New function to convert to HSV and split
-def convert_to_hsv_and_split(image):
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    h, s, v = cv2.split(hsv_image)
-    return h, s, v
 
 # Placeholder for morphological transformations
 def apply_morphological_operations(image, close_kernel_size=3, open_kernel_size=3):
@@ -61,91 +32,14 @@ def apply_morphological_operations(image, close_kernel_size=3, open_kernel_size=
 
     return opening
 
-def segment_flower_using_color(image):
-    # Convert to HSV color space
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-
-    # Define the color range for yellow flowers
-    lower_yellow = np.array([20, 100, 100])
-    upper_yellow = np.array([30, 255, 255])
-
-    # Create a mask for the yellow color
-    mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
-
-    # Apply morphological operations to clean up the mask
-    kernel = np.ones((5, 5), np.uint8)
-    clean_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    clean_mask = cv2.morphologyEx(clean_mask, cv2.MORPH_OPEN, kernel)
-
-    return clean_mask
-
 def apply_bilateral_filter(image, d=9, sigma_color=75, sigma_space=75):
-
-    """
-
-    Apply bilateral filtering to reduce noise while preserving edges.
-
-
-
-    Parameters:
-
-    - image: The input image
-
-    - d: Diameter of each pixel neighborhood used during filtering
-
-    - sigma_color: Value for filter sigma in the color space
-
-    - sigma_space: Value for filter sigma in the coordinate space
-
-
-
-    Returns:
-
-    - The filtered image
-
-    """
-
     return cv2.bilateralFilter(image, d, sigma_color, sigma_space)
 
-def adjust_gain(image, gain=1.0):
-    """
-    Adjusts the gain (brightness) of an image.
-
-    Parameters:
-    - image: Input image
-    - gain: Factor by which to multiply pixel values
-
-    Returns:
-    - The brightness adjusted image
-    """
-    # Convert to float to avoid clipping during multiplication
-    f_image = image.astype(np.float32)
-    # Multiply the image by the gain factor
-    f_image = cv2.multiply(f_image, np.array([gain]))
-    # Clip values to the range [0, 255] and convert back to uint8
-    adjusted_image = np.clip(f_image, 0, 255).astype(np.uint8)
-    return adjusted_image
-
-def gamma_correction(image, gamma=1.0):
-    """
-    Performs gamma correction on an image.
-
-    Parameters:
-    - image: Input image
-    - gamma: Gamma value for correction
-
-    Returns:
-    - The gamma corrected image
-    """
-    # Build a lookup table mapping pixel values [0, 255] to their adjusted gamma values
-    invGamma = 1.0 / gamma
-    table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(256)]).astype(np.uint8)
-
-    # Apply gamma correction using the lookup table
-    return cv2.LUT(image, table)
-
-
 def apply_kmeans(image, K=2):
+    # Check if the image is grayscale. If so, convert it to a 3-channel format.
+    if len(image.shape) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+
     # Convert image into a feature vector
     pixel_values = image.reshape((-1, 3))
     pixel_values = np.float32(pixel_values)
@@ -154,50 +48,87 @@ def apply_kmeans(image, K=2):
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
     _, labels, (centers) = cv2.kmeans(pixel_values, K, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
 
-    # Convert back to 8 bit values
-    centers = np.uint8(centers)
+    # Compute the mean intensity of each cluster
+    mean_intensity = np.mean(centers, axis=1)
+    flower_label = np.argmax(mean_intensity)
 
-    # Map labels to center values
-    segmented_image = centers[labels.flatten()]
-    segmented_image = segmented_image.reshape(image.shape)
-
-    # Assuming the flower is brighter, find which cluster is brighter
-    brightness = np.sum(centers, axis=1)
-    flower_cluster = np.argmax(brightness)
-
-    # Create a mask where the brighter cluster is white, and the other is black
-    mask = np.where(labels == flower_cluster, 255, 0)
-    mask = mask.astype(np.uint8)
+    # Construct the mask based on the identified flower cluster
+    mask = np.zeros(labels.shape, dtype=np.uint8)
+    mask[labels == flower_label] = 255
     mask = mask.reshape((image.shape[0], image.shape[1]))
 
-    return mask
+    return mask, image
 
-def apply_clahe(image, clip_limit=2.0, tile_grid_size=(8,8)):
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
-    lab_planes = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-    lab_planes[0] = clahe.apply(lab_planes[0])
-    lab = cv2.merge(lab_planes)
-    updated_image = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
-    return updated_image
 
-def process_and_compare_image(input_path, ground_truth_path):
+# https://publisher.uthm.edu.my/periodicals/index.php/eeee/article/view/441
+# not sure it does anything
+def apply_median_filter(image, kernel_size=5):
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size must be an odd number.")
+    return cv2.medianBlur(image, kernel_size)
+
+
+def apply_watershed(image, segmentation_mask):
+    # Convert segmentation mask to binary format
+    _, binary_mask = cv2.threshold(segmentation_mask, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Noise reduction in the binary mask
+    opening = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+
+    # Sure background area using dilation
+    sure_bg = cv2.dilate(opening, np.ones((3, 3), np.uint8), iterations=3)
+
+    # Finding sure foreground area using distance transform and thresholding
+    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+    _, sure_fg = cv2.threshold(dist_transform, 0.25 * dist_transform.max(), 255, 0)
+
+    # Finding unknown region by subtracting sure foreground from sure background
+    sure_fg = np.uint8(sure_fg)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # Marker labeling
+    _, markers = cv2.connectedComponents(sure_fg)
+
+    # Add one to all labels so that the background is not 0, but 1
+    markers = markers + 1
+
+    # Mark the region of unknown with zero
+    markers[unknown == 255] = 0
+
+    # Apply the Watershed algorithm
+    markers = cv2.watershed(image, markers)
+
+    # Create the segmentation result
+    segmentation = np.zeros_like(binary_mask)
+    segmentation[markers == -1] = 255  # Edge marking
+    segmentation[markers > 1] = 255  # Object marking
+
+    # Post-processing to fill holes and remove noise
+    segmentation = cv2.morphologyEx(segmentation, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+    return segmentation
+
+def pipeline(input_path, ground_truth_path):
     # Load the image
     image = cv2.imread(input_path)
-    if image is None:
-        raise ValueError("Image not found at the path.")
 
-    # Noise Reduction
-    preprocessed_image = apply_noise_reduction(image)
+    # Proceed with bilateral filtering
+    bilateral_filtered_image = apply_bilateral_filter(image)
 
-    # Bilateral filtering
-    bilateral_filtered_image = apply_bilateral_filter(preprocessed_image)
+    # Convert image to grayscale
+    grayscale_image = cv2.cvtColor(bilateral_filtered_image, cv2.COLOR_BGR2GRAY)
+
+    # Apply median filtering
+    median_filtered_image = apply_median_filter(grayscale_image)
 
     # Apply K-means clustering for segmentation
-    kmeans_result = apply_kmeans(bilateral_filtered_image)
+    kmeans_mask, image_for_watershed = apply_kmeans(median_filtered_image)
 
-    # Morphological Operations to refine the segmentation
-    morph_result = apply_morphological_operations(kmeans_result)
+    # Apply Watershed algorithm to refine segmentation
+    watershed_result = apply_watershed(image_for_watershed, kmeans_mask)
+
+    # Morphological Operations to further refine the segmentation
+    morph_result = apply_morphological_operations(watershed_result)
 
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
@@ -210,16 +141,15 @@ def process_and_compare_image(input_path, ground_truth_path):
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255)
+    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
-    images = [image, bilateral_filtered_image, kmeans_result, inverted_ground_truth, morph_result]
-    descriptions = ["Original Image", "Preprocessed Image", "K-means Result", "Inverted Ground Truth", "Morphology"]
+    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result]
+    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
 
     return miou_score, images, descriptions
 
-
-def process_images_and_compare(directory_paths, ground_truth_directory_paths):
+def display_images(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
     total_images = 9  # Total sets of images to process
     steps_per_set = 9  # Steps per set
@@ -241,7 +171,7 @@ def process_images_and_compare(directory_paths, ground_truth_directory_paths):
             print(f"Processing {input_path} with inverted ground truth {inverted_ground_truth_path}")
 
             try:
-                score, images, descriptions = process_and_compare_image(input_path, inverted_ground_truth_path)
+                score, images, descriptions = pipeline(input_path, inverted_ground_truth_path)
                 miou_scores[input_path] = score
 
                 # Plot each step in the process for the current set
@@ -275,4 +205,4 @@ ground_truth_directory_paths = {
 }
 
 # Call the main function
-process_images_and_compare(directory_paths, ground_truth_directory_paths)
+display_images(directory_paths, ground_truth_directory_paths)
