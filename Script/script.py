@@ -18,8 +18,6 @@ def calculate_miou(prediction, target, target_original_shape):
     iou_score = np.sum(intersection) / np.sum(union)
     return iou_score
 
-# New function to convert to HSV and split
-
 # Placeholder for morphological transformations
 def apply_morphological_operations(image, close_kernel_size=3, open_kernel_size=3):
     # Create structuring elements for morphological operations
@@ -60,7 +58,6 @@ def apply_kmeans(image, K=2):
     mask = mask.reshape((image.shape[0], image.shape[1]))
 
     return mask, image
-
 
 
 # https://publisher.uthm.edu.my/periodicals/index.php/eeee/article/view/441
@@ -111,14 +108,7 @@ def apply_watershed(image, segmentation_mask):
 
     return segmentation
 
-def close_gaps_in_flower(mask, kernel_size=10):
-    # Create a large structuring element for closing operation
-    kernel = np.ones((kernel_size, kernel_size), np.uint8)
-    # Closing: Dilation followed by Erosion to fill holes
-    closed_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return closed_mask
-
-def process_and_compare_image(input_path, ground_truth_path):
+def pipeline(input_path, ground_truth_path):
     # Load the image
     image = cv2.imread(input_path)
 
@@ -140,9 +130,6 @@ def process_and_compare_image(input_path, ground_truth_path):
     # Morphological Operations to further refine the segmentation
     morph_result = apply_morphological_operations(watershed_result)
 
-    # Fill the gaps inside the flower
-    filled_flower_mask = close_gaps_in_flower(morph_result)
-
     # Process the ground truth
     ground_truth = cv2.imread(ground_truth_path, cv2.IMREAD_GRAYSCALE)
     if ground_truth is None:
@@ -154,15 +141,15 @@ def process_and_compare_image(input_path, ground_truth_path):
     inverted_ground_truth = invert_colors(binary_ground_truth)
 
     # Calculate mIoU score
-    miou_score = calculate_miou(filled_flower_mask // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
+    miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
-    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result, filled_flower_mask]
-    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result", "filled_flower_mask"]
+    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result]
+    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
 
     return miou_score, images, descriptions
 
-def process_images_and_compare(directory_paths, ground_truth_directory_paths):
+def display_images(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
     total_images = 9  # Total sets of images to process
     steps_per_set = 9  # Steps per set
@@ -184,7 +171,7 @@ def process_images_and_compare(directory_paths, ground_truth_directory_paths):
             print(f"Processing {input_path} with inverted ground truth {inverted_ground_truth_path}")
 
             try:
-                score, images, descriptions = process_and_compare_image(input_path, inverted_ground_truth_path)
+                score, images, descriptions = pipeline(input_path, inverted_ground_truth_path)
                 miou_scores[input_path] = score
 
                 # Plot each step in the process for the current set
@@ -218,4 +205,4 @@ ground_truth_directory_paths = {
 }
 
 # Call the main function
-process_images_and_compare(directory_paths, ground_truth_directory_paths)
+display_images(directory_paths, ground_truth_directory_paths)
