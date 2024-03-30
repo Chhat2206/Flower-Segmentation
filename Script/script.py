@@ -76,7 +76,7 @@ def apply_watershed(image, segmentation_mask):
     opening = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
 
     # Sure background area using dilation
-    sure_bg = cv2.dilate(opening, np.ones((3, 3), np.uint8), iterations=3)
+    sure_bg = cv2.dilate(opening, np.ones((9, 9), np.uint8), iterations=3)
 
     # Finding sure foreground area using distance transform and thresholding
     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
