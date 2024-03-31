@@ -148,9 +148,9 @@ def pipeline(input_path, ground_truth_path):
 
     # Collect images for comparison
     images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result,
-              inverted_ground_truth, morph_result]
+              morph_result, inverted_ground_truth]
     descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result",
-                    "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
+                    "Watershed Result", "Morphology Result (Final)", "Inverted Ground Truth"]
 
     return miou_score, images, descriptions
 
