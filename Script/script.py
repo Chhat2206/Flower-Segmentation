@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -76,7 +78,7 @@ def apply_watershed(image, segmentation_mask):
     opening = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
 
     # Sure background area using dilation
-    sure_bg = cv2.dilate(opening, np.ones((3, 3), np.uint8), iterations=3)
+    sure_bg = cv2.dilate(opening, np.ones((9, 9), np.uint8), iterations=3)
 
     # Finding sure foreground area using distance transform and thresholding
     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
@@ -107,6 +109,7 @@ def apply_watershed(image, segmentation_mask):
     segmentation = cv2.morphologyEx(segmentation, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
     return segmentation
+
 
 def pipeline(input_path, ground_truth_path):
     # Load the image
@@ -144,10 +147,39 @@ def pipeline(input_path, ground_truth_path):
     miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
-    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result]
-    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
+    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result,
+              morph_result, inverted_ground_truth]
+    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result",
+                    "Watershed Result", "Morphology Result (Final)", "Inverted Ground Truth"]
 
     return miou_score, images, descriptions
+
+def save_images(directory_paths, ground_truth_directory_paths, output_directory_paths):
+
+    for difficulty in ['easy', 'medium', 'hard']:
+        output_directory = output_directory_paths[difficulty]
+        os.makedirs(output_directory, exist_ok=True)  # Create output directory if not exists
+
+        current_image_index = 0  # To keep track of which row we're on
+
+        for i in range(1, 4):  # Assuming there are 3 images per difficulty level
+            input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
+            ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
+            output_path = f"{output_directory}/{difficulty}_{i}.png"
+
+            try:
+                _, _, _ = pipeline(input_path, ground_truth_path)
+                # Only save the morph_result image
+                _, images, descriptions = pipeline(input_path, ground_truth_path)
+                morph_result = images[-1]  # Get the last image, which is the morph_result
+
+                # Save the morph_result image
+                cv2.imwrite(output_path, morph_result)
+
+            except Exception as e:
+                print(f"Error processing {input_path}: {e}")
+
+    print("Output images saved successfully.")
 
 def display_images(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
@@ -162,16 +194,14 @@ def display_images(directory_paths, ground_truth_directory_paths):
     for difficulty in ['easy', 'medium', 'hard']:
         for i in range(1, 4):  # Assuming there are 3 images per difficulty level
             ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
-            modified_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_modified.png'
-            inverted_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_inverted.png'
 
             # Proceed with color modification and inversion as before
 
             input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
-            print(f"Processing {input_path} with inverted ground truth {inverted_ground_truth_path}")
+            print(f"Processing {input_path} with ground truth {ground_truth_path}")
 
             try:
-                score, images, descriptions = pipeline(input_path, inverted_ground_truth_path)
+                score, images, descriptions = pipeline(input_path, ground_truth_path)
                 miou_scores[input_path] = score
 
                 # Plot each step in the process for the current set
@@ -203,6 +233,12 @@ ground_truth_directory_paths = {
     'medium': 'ground_truths/medium',
     'hard': 'ground_truths/hard'
 }
+output_directory_paths = {
+    'easy': 'output/easy',
+    'medium': 'output/medium',
+    'hard': 'output/hard'
+}
 
-# Call the main function
+# Call the main functions
+save_images(directory_paths, ground_truth_directory_paths, output_directory_paths)
 display_images(directory_paths, ground_truth_directory_paths)
