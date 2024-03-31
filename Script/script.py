@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -108,6 +110,7 @@ def apply_watershed(image, segmentation_mask):
 
     return segmentation
 
+
 def pipeline(input_path, ground_truth_path):
     # Load the image
     image = cv2.imread(input_path)
@@ -144,53 +147,41 @@ def pipeline(input_path, ground_truth_path):
     miou_score = calculate_miou(morph_result // 255, inverted_ground_truth // 255, inverted_ground_truth.shape)
 
     # Collect images for comparison
-    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result, inverted_ground_truth, morph_result]
-    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result", "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
+    images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result,
+              inverted_ground_truth, morph_result]
+    descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result",
+                    "Watershed Result", "Inverted Ground Truth", "Morphology Result"]
 
     return miou_score, images, descriptions
 
-def display_images(directory_paths, ground_truth_directory_paths):
+
+def display_images(directory_paths, ground_truth_directory_paths, output_directory_paths):
     miou_scores = {}
-    total_images = 9  # Total sets of images to process
-    steps_per_set = 9  # Steps per set
-
-    # Adjust here for overall plotting
-    fig, axs = plt.subplots(total_images, steps_per_set, figsize=(20, total_images * 2.5))
-
-    current_image_index = 0  # To keep track of which row we're on
 
     for difficulty in ['easy', 'medium', 'hard']:
+        output_directory = output_directory_paths[difficulty]
+        os.makedirs(output_directory, exist_ok=True)  # Create output directory if not exists
+
+        current_image_index = 0  # To keep track of which row we're on
+
         for i in range(1, 4):  # Assuming there are 3 images per difficulty level
-            ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
-            modified_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_modified.png'
-            inverted_ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}_inverted.png'
-
-            # Proceed with color modification and inversion as before
-
             input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
-            print(f"Processing {input_path} with inverted ground truth {inverted_ground_truth_path}")
+            ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
+            output_path = f"{output_directory}/{difficulty}_{i}.png"
 
             try:
-                score, images, descriptions = pipeline(input_path, inverted_ground_truth_path)
-                miou_scores[input_path] = score
+                _, _, _ = pipeline(input_path, ground_truth_path)
+                # Only save the morph_result image
+                _, images, descriptions = pipeline(input_path, ground_truth_path)
+                morph_result = images[-1]  # Get the last image, which is the morph_result
 
-                # Plot each step in the process for the current set
-                for step_index, (img, desc) in enumerate(zip(images, descriptions)):
-                    ax = axs[current_image_index, step_index]
-                    ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if len(img.shape) == 3 else img, cmap='gray')
-                    ax.set_title(desc, fontsize=9)
-                    ax.axis('off')
-
-                current_image_index += 1  # Move to the next row for the next set of images
+                # Save the morph_result image
+                cv2.imwrite(output_path, morph_result)
 
             except Exception as e:
                 print(f"Error processing {input_path}: {e}")
 
-    for path, score in miou_scores.items():
-        print(f"mIoU for {path}: {score}")
-
-    plt.tight_layout()
-    plt.show()
+    print("Output images saved successfully.")
 
 # Define your directory paths
 directory_paths = {
@@ -203,6 +194,11 @@ ground_truth_directory_paths = {
     'medium': 'ground_truths/medium',
     'hard': 'ground_truths/hard'
 }
+output_directory_paths = {
+    'easy': 'output/easy',
+    'medium': 'output/medium',
+    'hard': 'output/hard'
+}
 
 # Call the main function
-display_images(directory_paths, ground_truth_directory_paths)
+display_images(directory_paths, ground_truth_directory_paths, output_directory_paths)
