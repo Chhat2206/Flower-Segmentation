@@ -155,7 +155,6 @@ def pipeline(input_path, ground_truth_path):
     return miou_score, images, descriptions
 
 def save_images(directory_paths, ground_truth_directory_paths, output_directory_paths):
-    miou_scores = {}
 
     for difficulty in ['easy', 'medium', 'hard']:
         output_directory = output_directory_paths[difficulty]
