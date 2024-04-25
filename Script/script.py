@@ -3,7 +3,6 @@ import os
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import confusion_matrix
 
 def invert_colors(image):
     return cv2.bitwise_not(image)
@@ -21,7 +20,7 @@ def calculate_miou(prediction, target, target_original_shape):
     return iou_score
 
 # Placeholder for morphological transformations
-def apply_morphological_operations(image, close_kernel_size=3, open_kernel_size=3):
+def apply_morphological_operations(image, close_kernel_size=2, open_kernel_size=4):
     # Create structuring elements for morphological operations
     close_kernel = np.ones((close_kernel_size, close_kernel_size), np.uint8)
     open_kernel = np.ones((open_kernel_size, open_kernel_size), np.uint8)
@@ -69,6 +68,15 @@ def apply_median_filter(image, kernel_size=5):
         raise ValueError("Kernel size must be an odd number.")
     return cv2.medianBlur(image, kernel_size)
 
+def apply_gaussian_filter(image, kernel_size=5):
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size must be an odd number.")
+    return cv2.GaussianBlur(image, (5, 5), 1.5)
+
+def apply_mean_filter(image, kernel_size=5):
+    if kernel_size % 2 == 0:
+        raise ValueError("Kernel size must be an odd number.")
+    return cv2.blur(image, (5, 5))
 
 def apply_watershed(image, segmentation_mask):
     # Convert segmentation mask to binary format
@@ -121,7 +129,13 @@ def pipeline(input_path, ground_truth_path):
     # Convert image to grayscale
     grayscale_image = cv2.cvtColor(bilateral_filtered_image, cv2.COLOR_BGR2GRAY)
 
+    gamma = 0.95
+    saturation = 0.94
+    grayscale_image = ((grayscale_image / 255) * gamma * saturation) * 255
+    grayscale_image = grayscale_image.astype("uint8")
+
     # Apply median filtering
+
     median_filtered_image = apply_median_filter(grayscale_image)
 
     # Apply K-means clustering for segmentation
@@ -150,7 +164,7 @@ def pipeline(input_path, ground_truth_path):
     images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result,
               morph_result, inverted_ground_truth]
     descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result",
-                    "Watershed Result", "Morphology Result (Final)", "Inverted Ground Truth"]
+                    "Watershed Result", "Morphology (Final Result)", "Inverted Ground Truth"]
 
     return miou_score, images, descriptions
 
@@ -160,9 +174,9 @@ def save_images(directory_paths, ground_truth_directory_paths, output_directory_
         output_directory = output_directory_paths[difficulty]
         os.makedirs(output_directory, exist_ok=True)  # Create output directory if not exists
 
-        current_image_index = 0  # To keep track of which row we're on
+        current_image_index = 0  # To keep track of the row
 
-        for i in range(1, 4):  # Assuming there are 3 images per difficulty level
+        for i in range(1, 4):  # 3 images per difficulty level
             input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
             ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
             output_path = f"{output_directory}/{difficulty}_{i}.png"
@@ -171,7 +185,7 @@ def save_images(directory_paths, ground_truth_directory_paths, output_directory_
                 _, _, _ = pipeline(input_path, ground_truth_path)
                 # Only save the morph_result image
                 _, images, descriptions = pipeline(input_path, ground_truth_path)
-                morph_result = images[-1]  # Get the last image, which is the morph_result
+                morph_result = images[-2]  # Get the penultimate image, which is the morph_result
 
                 # Save the morph_result image
                 cv2.imwrite(output_path, morph_result)
@@ -187,18 +201,17 @@ def display_images(directory_paths, ground_truth_directory_paths):
     steps_per_set = 9  # Steps per set
 
     # Adjust here for overall plotting
-    fig, axs = plt.subplots(total_images, steps_per_set, figsize=(20, total_images * 2.5))
+    fig, axs = plt.subplots(total_images, steps_per_set, figsize=(40, total_images * 2.5))
 
     current_image_index = 0  # To keep track of which row we're on
 
     for difficulty in ['easy', 'medium', 'hard']:
-        for i in range(1, 4):  # Assuming there are 3 images per difficulty level
+        for i in range(1, 4):  # 3 images per difficulty level
             ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
 
-            # Proceed with color modification and inversion as before
-
+            # Proceed with color modification and inversion
             input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
-            print(f"Processing {input_path} with ground truth {ground_truth_path}")
+            # print(f"Processing {input_path} with ground truth {ground_truth_path}")
 
             try:
                 score, images, descriptions = pipeline(input_path, ground_truth_path)
@@ -220,7 +233,8 @@ def display_images(directory_paths, ground_truth_directory_paths):
         print(f"mIoU for {path}: {score}")
 
     plt.tight_layout()
-    plt.show()
+    # Uncomment plt.show() to display the process and GUI.
+    # plt.show()
 
 # Define your directory paths
 directory_paths = {
