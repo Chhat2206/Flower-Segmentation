@@ -164,31 +164,42 @@ def pipeline(input_path, ground_truth_path):
     images = [image, bilateral_filtered_image, grayscale_image, median_filtered_image, kmeans_mask, watershed_result,
               morph_result, inverted_ground_truth]
     descriptions = ["Original Image", "Bilateral Filtered", "Grayscale", "Median Filtered", "K-Means Result",
-                    "Watershed Result", "Morphology (Final Result)", "Inverted Ground Truth"]
+                    "Watershed Result", "Morphology", "Inverted Ground Truth"]
 
     return miou_score, images, descriptions
 
-def save_images(directory_paths, ground_truth_directory_paths, output_directory_paths):
+
+def save_images(directory_paths, ground_truth_directory_paths, output_directory_paths, morphology_output_paths):
+    # Create the Image Processing Pipeline directory if it doesn't exist
+    os.makedirs(pipeline_output_base, exist_ok=True)
+
+    # Create output directories for each step in the processing pipeline
+    for step, step_folder_path in output_directory_paths.items():
+        os.makedirs(step_folder_path, exist_ok=True)
 
     for difficulty in ['easy', 'medium', 'hard']:
-        output_directory = output_directory_paths[difficulty]
-        os.makedirs(output_directory, exist_ok=True)  # Create output directory if not exists
-
-        current_image_index = 0  # To keep track of the row
-
         for i in range(1, 4):  # 3 images per difficulty level
-            input_path = f'{directory_paths[difficulty]}/{difficulty}_{i}.jpg'
-            ground_truth_path = f'{ground_truth_directory_paths[difficulty]}/{difficulty}_{i}.png'
-            output_path = f"{output_directory}/{difficulty}_{i}.png"
+            input_path = os.path.join(directory_paths[difficulty], f'{difficulty}_{i}.jpg')
+            ground_truth_path = os.path.join(ground_truth_directory_paths[difficulty], f'{difficulty}_{i}.png')
 
             try:
-                _, _, _ = pipeline(input_path, ground_truth_path)
-                # Only save the morph_result image
+                # Process the pipeline
                 _, images, descriptions = pipeline(input_path, ground_truth_path)
-                morph_result = images[-2]  # Get the penultimate image, which is the morph_result
 
-                # Save the morph_result image
-                cv2.imwrite(output_path, morph_result)
+                # Save the images to the corresponding output folders
+                for image, description in zip(images, descriptions):
+                    step_folder_path = output_directory_paths[description]
+                    output_folder_path = os.path.join(step_folder_path, difficulty)
+                    os.makedirs(output_folder_path, exist_ok=True)
+
+                    output_path = os.path.join(output_folder_path, f'{difficulty}_{i}.png')
+                    cv2.imwrite(output_path, image)
+
+                    # Extra saving step for morphology results
+                    if description == 'Morphology':
+                        morphology_path = os.path.join(morphology_output_paths[difficulty], f'{difficulty}_{i}.png')
+                        os.makedirs(os.path.dirname(morphology_path), exist_ok=True)
+                        cv2.imwrite(morphology_path, image)
 
             except Exception as e:
                 print(f"Error processing {input_path}: {e}")
@@ -198,7 +209,7 @@ def save_images(directory_paths, ground_truth_directory_paths, output_directory_
 def display_images(directory_paths, ground_truth_directory_paths):
     miou_scores = {}
     total_images = 9  # Total sets of images to process
-    steps_per_set = 9  # Steps per set
+    steps_per_set = 8  # Steps per set
 
     # Adjust here for overall plotting
     fig, axs = plt.subplots(total_images, steps_per_set, figsize=(40, total_images * 2.5))
@@ -236,7 +247,6 @@ def display_images(directory_paths, ground_truth_directory_paths):
     # Uncomment plt.show() to display the process and GUI.
     # plt.show()
 
-# Define your directory paths
 directory_paths = {
     'easy': 'input-images/easy',
     'medium': 'input-images/medium',
@@ -247,12 +257,26 @@ ground_truth_directory_paths = {
     'medium': 'ground_truths/medium',
     'hard': 'ground_truths/hard'
 }
+pipeline_output_base = 'Image Processing Pipeline'
+
 output_directory_paths = {
+    'Original Image': os.path.join(pipeline_output_base, 'original_image'),
+    'Bilateral Filtered': os.path.join(pipeline_output_base, 'bilateral_filtered'),
+    'Grayscale': os.path.join(pipeline_output_base, 'grayscale'),
+    'Median Filtered': os.path.join(pipeline_output_base, 'median_filtered'),
+    'K-Means Result': os.path.join(pipeline_output_base, 'kmeans_result'),
+    'Watershed Result': os.path.join(pipeline_output_base, 'watershed_result'),
+    'Morphology': os.path.join(pipeline_output_base, 'morphology'),
+    'Inverted Ground Truth': os.path.join(pipeline_output_base, 'inverted_ground_truth')
+}
+
+morphology_output_paths = {
     'easy': 'output/easy',
     'medium': 'output/medium',
     'hard': 'output/hard'
 }
 
-# Call the main functions
-save_images(directory_paths, ground_truth_directory_paths, output_directory_paths)
+# Adjust the main function calls
+save_images(directory_paths, ground_truth_directory_paths, output_directory_paths, morphology_output_paths)
 display_images(directory_paths, ground_truth_directory_paths)
+
