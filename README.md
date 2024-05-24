@@ -1,4 +1,5 @@
-# Python-Image-Processing
+# Flower Segmentation through Python
+This project proposes an efficient algorithm for segmenting flowers from complex backgrounds in images. The algorithm effectively addresses challenges such as pixel noise and foreground-background collisions by leveraging a pipeline of image processing techniques, including bilateral filtering, greyscale conversion, and saturation adjustment. Segmentation is achieved through K-means clustering and watershed algorithms, supplemented by morphological transformations for refinement. Empirical experimentation guides the selection of preprocessing techniques, leading to a robust pipeline for accurate flower segmentation. This work contributes to advancing automated flower segmentation for applications in botany, agriculture, and computer vision. I achieved around 80 to 90% image segmentation success. 
 
 This Python script implements an image segmentation pipeline using bilateral filtering and median filtering to remove noise from the image. The segmentation techniques used include K-means clustering, watershed segmentation, and morphological operations to clean the segmented image. 
 
